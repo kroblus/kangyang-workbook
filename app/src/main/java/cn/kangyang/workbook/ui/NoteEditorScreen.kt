@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.kangyang.workbook.*
@@ -50,7 +51,20 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     val linked=s.find(e.parentId)
     val tasks=s.entries.filter{it.kind==Kind.TASK&&it.sourceId==e.id}
     fun show(value:String){keyboard?.hide();panel=value}
-    Column(Modifier.fillMaxSize().imePadding().background(MaterialTheme.colorScheme.surface)) {
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding().background(MaterialTheme.colorScheme.surface)) {
+        val compact=maxHeight<260.dp
+        Column(Modifier.fillMaxSize()) {
+        if(compact) Row(Modifier.fillMaxWidth().padding(horizontal=4.dp),verticalAlignment=Alignment.CenterVertically) {
+            IconButton(onClick=vm::back,enabled=!session.saving,modifier=Modifier.testTag("note_back")){Icon(Icons.Outlined.ArrowBack,"返回")}
+            Text(session.status,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,
+                color=if(session.status.contains("未保存")) MaterialTheme.colorScheme.error else Muted,
+                modifier=Modifier.weight(1f).testTag("note_save_status").clickable(enabled=session.status.contains("重试")){vm.flushDraft()})
+            IconButton(onClick={show("attachment")},modifier=Modifier.testTag("note_attach")){Icon(Icons.Outlined.AttachFile,"附件")}
+            IconButton(onClick={show("link")},modifier=Modifier.testTag("note_link")){Icon(Icons.Outlined.Link,"关联")}
+            IconButton(onClick={selectedTaskId=tasks.firstOrNull()?.id;show("followup")},modifier=Modifier.testTag("note_followup")){Icon(Icons.Outlined.AddTask,if(tasks.isEmpty())"加跟进" else "跟进")}
+            IconButton(onClick={show("more")},modifier=Modifier.testTag("note_more")){Icon(Icons.Outlined.MoreHoriz,"更多")}
+            TextButton(onClick=vm::completeNote,enabled=!session.saving,modifier=Modifier.heightIn(min=52.dp).testTag("note_done")){Text("完成",fontSize=16.sp)}
+        } else {
         Row(Modifier.fillMaxWidth().padding(horizontal=4.dp),verticalAlignment=Alignment.CenterVertically) {
             IconButton(onClick=vm::back,enabled=!session.saving,modifier=Modifier.testTag("note_back")){Icon(Icons.Outlined.ArrowBack,"返回")}
             Text("记一笔",style=MaterialTheme.typography.titleLarge,modifier=Modifier.weight(1f))
@@ -61,10 +75,11 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
                 color=if(session.status.contains("未保存")) MaterialTheme.colorScheme.error else Muted,
                 modifier=Modifier.weight(1f).testTag("note_save_status").clickable(enabled=session.status.contains("重试")){vm.flushDraft()})
         }
+        }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=20.dp).testTag("note_scroll")) {
             BasicTextField(value=body,onValueChange={value->body=value;vm.change(e.copy(fields=e.fields+("content" to value.text)))},
                 enabled=!session.saving,textStyle=MaterialTheme.typography.bodyLarge.copy(color=Ink,fontSize=17.sp,lineHeight=28.sp),
-                cursorBrush=SolidColor(Green),modifier=Modifier.fillMaxWidth().heightIn(min=170.dp).padding(top=16.dp,bottom=20.dp).focusRequester(focus).testTag("note_body"),
+                cursorBrush=SolidColor(Green),modifier=Modifier.fillMaxWidth().heightIn(min=if(compact)40.dp else 170.dp).padding(top=if(compact)0.dp else 16.dp,bottom=if(compact)0.dp else 20.dp).focusRequester(focus).testTag("note_body"),
                 decorationBox={inner->Box {if(body.text.isEmpty()) Text("写下刚才的重要内容…",color=Muted,style=MaterialTheme.typography.bodyLarge.copy(fontSize=17.sp,lineHeight=28.sp));inner()}})
             val files=s.attachments.filter{it.ownerId==e.id}
             files.forEach {AttachmentRow(it,onAttachment,onRemove)}
@@ -74,12 +89,15 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
             tasks.forEach{task->TextButton(onClick={selectedTaskId=task.id;show("followup")}){Icon(Icons.Outlined.CheckCircleOutline,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("${task.title} · ${task["date"].ifBlank{"未设日期"}}")}}
             Spacer(Modifier.height(8.dp))
         }
+        if(!compact) {
         HorizontalDivider()
         FlowRow(Modifier.fillMaxWidth().padding(horizontal=8.dp),horizontalArrangement=Arrangement.SpaceEvenly) {
             TextButton(onClick={show("attachment")},modifier=Modifier.testTag("note_attach")){Icon(Icons.Outlined.AttachFile,null,Modifier.size(20.dp));Text("附件")}
             TextButton(onClick={show("link")},modifier=Modifier.testTag("note_link")){Icon(Icons.Outlined.Link,null,Modifier.size(20.dp));Text("关联")}
             TextButton(onClick={selectedTaskId=tasks.firstOrNull()?.id;show("followup")},modifier=Modifier.testTag("note_followup")){Icon(Icons.Outlined.AddTask,null,Modifier.size(20.dp));Text(if(tasks.isEmpty())"加跟进" else "跟进")}
             TextButton(onClick={show("more")},modifier=Modifier.testTag("note_more")){Icon(Icons.Outlined.MoreHoriz,null,Modifier.size(20.dp));Text("更多")}
+        }
+        }
         }
     }
     when(panel) {
