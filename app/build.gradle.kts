@@ -12,8 +12,8 @@ android {
         applicationId = "cn.kangyang.workbook"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("appVersionCode").orNull?.toInt() ?: 3
-        versionName = "1.0.0"
+        versionCode = providers.gradleProperty("appVersionCode").orNull?.toInt() ?: 5
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     flavorDimensions += "space"

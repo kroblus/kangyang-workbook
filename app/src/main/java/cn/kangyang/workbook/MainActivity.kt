@@ -46,8 +46,8 @@ class MainActivity : ComponentActivity() {
                 }
                 var preview by remember { mutableStateOf<Attachment?>(null) }
                 WorkbookApp(model,
-                    onPhoto={photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))},
-                    onFile={document.launch(arrayOf("image/*","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/vnd.oasis.opendocument.text"))},
+                    onPhoto={model.expectAttachment();photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))},
+                    onFile={model.expectAttachment();document.launch(arrayOf("image/*","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/vnd.oasis.opendocument.text"))},
                     onAttachment={ attachment ->
                         runCatching {
                             val f=model.repository.attachmentFile(attachment)
@@ -82,6 +82,6 @@ class MainActivity : ComponentActivity() {
         }.onFailure { model.message="没有可打开此文件的应用，附件已保留" }
     }
     override fun onNewIntent(intent:Intent) { super.onNewIntent(intent); setIntent(intent); intent.getStringExtra("entryId")?.let { model.navigate("detail:$it") } }
-    override fun onStop() { if(::model.isInitialized) model.flushDraft(); super.onStop() }
-    override fun onResume() { super.onResume(); if(::model.isInitialized) model.action { ReminderScheduler(this@MainActivity).rebuild(model.repository.snapshot(),force=true) } }
+    override fun onStop() { if(::model.isInitialized) model.onBackground(); super.onStop() }
+    override fun onResume() { super.onResume(); if(::model.isInitialized) {model.onForeground();model.action { ReminderScheduler(this@MainActivity).rebuild(model.repository.snapshot(),force=true) }} }
 }

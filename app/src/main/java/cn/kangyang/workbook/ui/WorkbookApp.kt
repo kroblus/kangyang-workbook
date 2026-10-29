@@ -6,7 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -29,293 +28,322 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 
 fun kindLabel(kind:Kind)=when(kind) {
-    Kind.ORGANIZATION->"单位"; Kind.CUSTOMER->"客户"; Kind.INTERACTION->"沟通记录"; Kind.ACTIVITY->"活动";
-    Kind.TASK->"待办"; Kind.CONTACT->"联系人"; Kind.RECIPIENT->"服务对象"; Kind.PROFILE->"本人资料"
+    Kind.ORGANIZATION->"单位";Kind.CUSTOMER->"客户";Kind.INTERACTION->"沟通记录";Kind.ACTIVITY->"活动";
+    Kind.TASK->"待办";Kind.CONTACT->"联系人";Kind.RECIPIENT->"服务对象";Kind.PROFILE->"本人资料"
 }
 fun kindIcon(kind:Kind):ImageVector=when(kind) {
-    Kind.ORGANIZATION->Icons.Outlined.Business; Kind.CUSTOMER->Icons.Outlined.People; Kind.ACTIVITY->Icons.Outlined.EventNote;
-    Kind.INTERACTION->Icons.Outlined.Forum; Kind.TASK->Icons.Outlined.CheckCircleOutline; else->Icons.Outlined.PersonOutline
+    Kind.ORGANIZATION->Icons.Outlined.Business;Kind.CUSTOMER->Icons.Outlined.People;Kind.ACTIVITY->Icons.Outlined.EventNote
+    Kind.INTERACTION->Icons.Outlined.Forum;Kind.TASK->Icons.Outlined.CheckCircleOutline;else->Icons.Outlined.PersonOutline
 }
 
 @Composable fun WorkbookApp(vm:WorkbookViewModel,onPhoto:()->Unit,onFile:()->Unit,onAttachment:(Attachment)->Unit,onNotifications:()->Unit) {
-    val snapshot by vm.snapshot.collectAsStateWithLifecycle()
+    val s by vm.snapshot.collectAsStateWithLifecycle()
     val route=vm.route
-    var quick by remember { mutableStateOf(false) }
-    var cancelEditorActivity by remember { mutableStateOf(false) }
-    var attachmentToRemove by remember { mutableStateOf<Attachment?>(null) }
-    LaunchedEffect(vm.message) { vm.message?.let { value -> kotlinx.coroutines.delay(5000); if(vm.message==value) vm.message=null } }
-    BackHandler(enabled=route!="home") { vm.back() }
-    val roots=listOf("home","orgs","customers","activities")
-    val isRoot=route in roots
+    var cancelEditorActivity by remember{mutableStateOf(false)}
+    var remove by remember{mutableStateOf<Attachment?>(null)}
+    BackHandler(enabled=route!="home"){vm.back()}
+    val root=route in listOf("home","orgs","customers","activities")
     Scaffold(containerColor=Canvas,
-        topBar={if(isRoot) TopAppBar(title={Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(9.dp)) {
-            Icon(Icons.Outlined.Spa,null,tint=Green,modifier=Modifier.size(26.dp))
-            Text(vm.profile["appName"].ifBlank { "康养工作簿" },style=MaterialTheme.typography.titleMedium,maxLines=2)
-        }},actions={IconButton(onClick={vm.navigate("search")},modifier=Modifier.testTag("search_all")) {Icon(Icons.Outlined.Search,"搜索全部")}; IconButton(onClick={vm.navigate("settings")},modifier=Modifier.testTag("settings")){Icon(Icons.Outlined.AccountCircle,"本人资料与设置")}},colors=TopAppBarDefaults.topAppBarColors(containerColor=Canvas))},
-        bottomBar={if(isRoot) NavigationBar(containerColor=Color.White,tonalElevation=0.dp) {
-            listOf(Triple("home","工作台",Icons.Outlined.Dashboard),Triple("orgs","单位",Icons.Outlined.Business),Triple("customers","客户",Icons.Outlined.People),Triple("activities","活动",Icons.Outlined.EventNote)).forEach {(dest,label,icon)->
+        topBar={if(root) TopAppBar(title={Text(if(route=="home")"今天" else vm.profile["appName"].ifBlank{"康养工作簿"},style=MaterialTheme.typography.titleLarge)},
+            actions={IconButton(onClick={vm.navigate("search")},modifier=Modifier.testTag("search_all")){Icon(Icons.Outlined.Search,"搜索全部")};IconButton(onClick={vm.navigate("settings")},modifier=Modifier.testTag("settings")){Icon(Icons.Outlined.AccountCircle,"本人资料与设置")}},colors=TopAppBarDefaults.topAppBarColors(containerColor=Canvas))},
+        bottomBar={if(root) NavigationBar(containerColor=MaterialTheme.colorScheme.surface,tonalElevation=0.dp){
+            listOf(Triple("home","工作台",Icons.Outlined.Dashboard),Triple("orgs","单位",Icons.Outlined.Business),Triple("customers","客户",Icons.Outlined.People),Triple("activities","活动",Icons.Outlined.EventNote)).forEach{(dest,label,icon)->
                 NavigationBarItem(selected=route==dest,onClick={vm.navigate(dest,true)},icon={Icon(icon,null)},label={Text(label)},modifier=Modifier.testTag("nav_$dest"))
             }
-        }}) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            vm.message?.let { value -> Surface(color=Mint,modifier=Modifier.fillMaxWidth()) { Row(Modifier.padding(start=16.dp),verticalAlignment=Alignment.CenterVertically) { Text(value,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,color=Brand);IconButton(onClick={vm.message=null}){Icon(Icons.Outlined.Close,"关闭提示")} } } }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-            when {
-                route=="editor" -> vm.editor?.let { e -> EntryEditor(e.entry,snapshot.entries,snapshot.attachments.filter{it.ownerId==e.entry.id},vm.tags,e.status,e.saving,
-                    vm::change,{if(e.entry.kind==Kind.ACTIVITY && e.entry["status"]=="已取消" && snapshot.find(e.entry.id)?.get("status")!="已取消") cancelEditorActivity=true else vm.save()},vm::back,onPhoto,onFile,onAttachment,{a->attachmentToRemove=a},onNotifications,vm::flushDraft)
+        }}) {padding->
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            vm.message?.let{value->Surface(color=Mint){Row(Modifier.fillMaxWidth().padding(start=16.dp),verticalAlignment=Alignment.CenterVertically){Text(value,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=Brand);IconButton(onClick={vm.message=null}){Icon(Icons.Outlined.Close,"关闭提示")}}}}
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when {
+                    route=="editor"->vm.editor?.let{e->
+                        if(e.entry.kind==Kind.INTERACTION) NoteEditorScreen(vm,e,s,onPhoto,onFile,onAttachment,{remove=it},onNotifications)
+                        else EntryEditor(e.entry,s.entries,s.attachments.filter{it.ownerId==e.entry.id},vm.tags,e.status,e.saving,vm::change,
+                            {if(e.entry.kind==Kind.ACTIVITY&&e.entry["status"]=="已取消"&&s.find(e.entry.id)?.get("status")!="已取消")cancelEditorActivity=true else vm.save()},
+                            vm::back,onPhoto,onFile,onAttachment,{remove=it},onNotifications,vm::flushDraft,e.attachmentStatus)
+                    }
+                    route.startsWith("detail:")->s.find(route.removePrefix("detail:"))?.let{e->
+                        if(e.kind==Kind.INTERACTION) NoteDetail(vm,e,s,onAttachment,onNotifications) else DetailScreen(vm,e,s,onAttachment,onNotifications)
+                    } ?: Column{BackTitle("查看记录",vm::back);EmptyCard("暂未找到记录","返回后重新查找，或检查恢复中的内容。")}
+                    route=="home"->HomeScreen(vm,s)
+                    route=="orgs"->EntryList(vm,s,Kind.ORGANIZATION)
+                    route=="customers"->EntryList(vm,s,Kind.CUSTOMER)
+                    route=="activities"->EntryList(vm,s,Kind.ACTIVITY)
+                    route=="tasks"->TaskList(vm,s,onNotifications)
+                    route=="drafts"->DraftList(vm,s)
+                    route=="search"->SearchScreen(vm,s)
+                    route=="settings"->SettingsScreen(vm,s,onNotifications)
+                    route=="export"->ExportScreen(vm,s)
+                    route in listOf("backup","restore")->BackupScreen(vm,s,restoring=route=="restore")
                 }
-                route.startsWith("detail:") -> {
-                    val e=snapshot.entries.find{it.id==route.removePrefix("detail:")}
-                    if(e==null) Column { BackTitle("查看记录",vm::back); EmptyCard("记录暂不可用","返回列表重新查找，或从草稿继续。") }
-                    else DetailScreen(vm,e,snapshot,onAttachment)
-                }
-                route=="home" -> HomeScreen(vm,snapshot) { quick=true }
-                route=="orgs" -> EntryList(vm,snapshot,Kind.ORGANIZATION)
-                route=="customers" -> EntryList(vm,snapshot,Kind.CUSTOMER)
-                route=="activities" -> EntryList(vm,snapshot,Kind.ACTIVITY)
-                route=="tasks" -> TaskList(vm,snapshot)
-                route=="search" -> SearchScreen(vm,snapshot)
-                route=="settings" -> SettingsScreen(vm,snapshot,onNotifications)
-                route=="export" -> ExportScreen(vm,snapshot)
-                route=="backup" -> BackupScreen(vm,snapshot)
-            }
+                if(vm.transitioning) Surface(color=Canvas.copy(alpha=.96f),modifier=Modifier.fillMaxSize()) {Column(Modifier.fillMaxSize(),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){CircularProgressIndicator();Text("正在切换资料，请稍候",Modifier.padding(16.dp))}}
             }
         }
     }
-    if(quick) AlertDialog(onDismissRequest={quick=false},title={Text("记一笔")},text={Column {
-        listOf("单位拜访","客户沟通","临时速记").forEach { label -> TextButton(onClick={quick=false;vm.create(Kind.INTERACTION); if(label=="临时速记") vm.editor?.entry?.let {vm.change(it.copy(fields=it.fields+("mode" to "临时速记")))}},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("quick_$label")) {Text(label)} }
-    }},confirmButton={TextButton(onClick={quick=false}){Text("取消")}})
-    if(cancelEditorActivity) AlertDialog(onDismissRequest={cancelEditorActivity=false},title={Text("取消活动，保留历史")},text={Text("活动提醒将撤销。未完成筹备待办要一起取消还是保留？")},confirmButton={TextButton(onClick={cancelEditorActivity=false;vm.save(true)}){Text("同时取消待办")}},dismissButton={TextButton(onClick={cancelEditorActivity=false;vm.save(false)}){Text("保留待办")}})
-    attachmentToRemove?.let { a -> AlertDialog(onDismissRequest={attachmentToRemove=null},title={Text("移除此附件")},text={Text("只移除当前记录中的“${a.name}”。正文、其他记录和其他附件会保留；移除立即生效。")},confirmButton={TextButton(onClick={attachmentToRemove=null;vm.action{vm.repository.removeAttachment(a.id)}}){Text("确认移除")}},dismissButton={TextButton(onClick={attachmentToRemove=null}){Text("取消")}}) }
+    if(cancelEditorActivity) CancelActivityDialog({cancelEditorActivity=false},{cancelEditorActivity=false;vm.save(it)})
+    remove?.let{a->ConfirmDialog("移除此附件","只移除当前记录中的“${a.name}”，正文和其他附件保留。",{remove=null;vm.removeAttachment(a)},{remove=null},"确认移除",destructive=true)}
 }
 
 @Composable fun BackTitle(title:String,onBack:()->Unit,actions:@Composable RowScope.()->Unit={}) {
-    TopAppBar(title={Text(title,style=MaterialTheme.typography.titleLarge,maxLines=2,overflow=TextOverflow.Ellipsis)},navigationIcon={IconButton(onClick=onBack){Icon(Icons.Outlined.ArrowBack,"返回")}},actions=actions,colors=TopAppBarDefaults.topAppBarColors(containerColor=Canvas))
+    TopAppBar(title={Text(title,style=MaterialTheme.typography.titleLarge,maxLines=2,overflow=TextOverflow.Ellipsis)},navigationIcon={IconButton(onClick=onBack){Icon(Icons.Outlined.ArrowBack,"返回")}},actions=actions,
+        windowInsets=WindowInsets(0,0,0,0),colors=TopAppBarDefaults.topAppBarColors(containerColor=Canvas))
 }
 @Composable fun SectionTitle(title:String,action:String?=null,onAction:()->Unit={}) {
-    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-        Text(title,style=MaterialTheme.typography.titleMedium,modifier=Modifier.weight(1f))
-        if(action!=null) TextButton(onClick=onAction){Text(action)}
-    }
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(title,style=MaterialTheme.typography.titleMedium,modifier=Modifier.weight(1f));if(action!=null)TextButton(onClick=onAction){Text(action)}}
 }
 @Composable fun EmptyCard(title:String,description:String) {
-    Surface(shape=RoundedCornerShape(14.dp),color=Color.White,modifier=Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.BookmarkBorder,null,tint=Green)
-            Text(title,style=MaterialTheme.typography.titleMedium)
-            Text(description,color=Muted,style=MaterialTheme.typography.bodyMedium)
-        }
-    }
+    Surface(shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(title,style=MaterialTheme.typography.titleMedium);Text(description,color=Muted,style=MaterialTheme.typography.bodyMedium)}}
 }
-@Composable fun Badge(text:String) { if(text.isNotBlank()) Surface(color=Mint,shape=RoundedCornerShape(6.dp)) { Text(text,Modifier.padding(horizontal=8.dp,vertical=4.dp),color=Brand,style=MaterialTheme.typography.labelMedium) } }
+@Composable fun Badge(text:String){if(text.isNotBlank())Surface(color=Mint,shape=AppShapes.badge){Text(text,Modifier.padding(horizontal=8.dp,vertical=4.dp),color=Brand,style=MaterialTheme.typography.labelMedium)}}
 @Composable fun EntryCard(entry:Entry,snapshot:Snapshot,onClick:()->Unit) {
-    Surface(onClick=onClick,shape=RoundedCornerShape(14.dp),color=Color.White,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth().testTag("entry_${entry.id}")) {
+    if(entry.kind==Kind.INTERACTION){RecordRow(entry,snapshot,onClick);return}
+    Surface(onClick=onClick,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth().testTag("entry_${entry.id}")) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.Top) {
-                Surface(color=Mint,shape=RoundedCornerShape(10.dp)){Icon(kindIcon(entry.kind),null,Modifier.padding(10.dp).size(22.dp),tint=Green)}
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-                    Text(entry.title.ifBlank { "沟通记录" },style=MaterialTheme.typography.titleMedium)
-                    val subtitle=when(entry.kind){
-                        Kind.ORGANIZATION -> listOf(entry["type"],entry["area"]).filter{it.isNotBlank()}.joinToString(" · ")
-                        Kind.CUSTOMER -> listOf(entry["stage"],entry["tags"].replace('\n','、')).filter{it.isNotBlank()}.joinToString(" · ")
-                        Kind.ACTIVITY -> "${entry["start"]}  ${entry["location"]}"
-                        Kind.TASK -> "${TimeRules.taskBucket(entry)} · ${entry["date"].ifBlank{"未设日期"}} ${entry["time"]}"
-                        Kind.INTERACTION -> TimeRules.formatDateTime(entry.occurredAt)+" · "+(snapshot.entries.find{it.id==entry.parentId}?.title ?: "临时未关联")
-                        else -> listOf(entry["role"],entry["relationship"],entry["phone"]).filter{it.isNotBlank()}.joinToString(" · ")
-                    }
-                    if(subtitle.isNotBlank()) Text(subtitle,color=Muted,style=MaterialTheme.typography.bodySmall)
-                }
-                Icon(Icons.Outlined.ChevronRight,null,tint=Muted,modifier=Modifier.size(20.dp))
+            Text(entry.title,style=MaterialTheme.typography.titleMedium)
+            val subtitle=when(entry.kind){
+                Kind.ORGANIZATION->listOf(entry["type"],entry["area"],entry["stage"]).filter{it.isNotBlank()}.joinToString(" · ")
+                Kind.CUSTOMER->listOf(entry["stage"],entry["tags"].replace('\n','、')).filter{it.isNotBlank()}.joinToString(" · ")
+                Kind.ACTIVITY->"${entry["start"].ifBlank{"时间待定"}}  ${entry["location"]}"
+                Kind.TASK->"${entry["date"].ifBlank{"未设日期"}} ${entry["time"]} · ${entry["status"]}"
+                else->listOf(entry["role"],entry["relationship"],entry["phone"]).filter{it.isNotBlank()}.joinToString(" · ")
             }
-            if(entry.kind==Kind.INTERACTION) Text(entry["content"],maxLines=3,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyMedium)
-            if(entry.archived) Badge("已归档") else if(entry.kind==Kind.ORGANIZATION) Badge(entry["stage"]) else if(entry.kind==Kind.ACTIVITY) Badge(entry["status"])
+            if(subtitle.isNotBlank())Text(subtitle,color=Muted,style=MaterialTheme.typography.bodySmall)
+            if(entry.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER)) {
+                snapshot.entries.filter{it.kind==Kind.CONTACT&&it.parentId==entry.id}.sortedByDescending{it["primary"]=="true"}.firstOrNull()?.let{Text(listOf(it.title,it["phone"]).filter{v->v.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.bodyMedium)}
+                snapshot.entries.filter{it.kind==Kind.INTERACTION&&it.parentId==entry.id}.maxByOrNull{it.occurredAt}?.let{Text(it["content"].ifBlank{noteTitle(it,snapshot)},maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyMedium)}
+                snapshot.entries.filter{it.kind==Kind.TASK&&it.parentId==entry.id&&it["status"] !in listOf("已完成","已取消")}.minByOrNull{TimeRules.taskDue(it)?:Long.MAX_VALUE}?.let{Text("下一步：${it.title}",color=Green,style=MaterialTheme.typography.bodySmall)}
+            }
+            if(entry.archived)Badge("已归档") else if(entry.kind==Kind.ACTIVITY)Badge(entry["status"])
+        }
+    }
+}
+@Composable fun RecordRow(e:Entry,s:Snapshot,onClick:()->Unit) {
+    Surface(onClick=onClick,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth().testTag("entry_${e.id}")) {
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text(noteTitle(e,s),style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+            val body=if(e.title.isBlank())e["content"].substringAfter('\n',"") else e["content"]
+            if(body.isNotBlank())Text(body,maxLines=3,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyMedium)
+            Text(listOf(occurrenceLabel(e),s.find(e.parentId)?.title.orEmpty()).filter{it.isNotBlank()}.joinToString(" · "),color=Muted,style=MaterialTheme.typography.bodySmall)
+            val files=s.attachments.count{it.ownerId==e.id};if(files>0)Text("$files 个附件",color=Muted,style=MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+@Composable fun FollowUpRow(e:Entry,s:Snapshot,now:Long,onOpen:()->Unit,onComplete:()->Unit,onReschedule:()->Unit) {
+    Surface(onClick=onOpen,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,modifier=Modifier.fillMaxWidth().testTag("entry_${e.id}")) {
+        Column(Modifier.padding(horizontal=12.dp,vertical=8.dp).testTag("task_${e.id}")) {
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                if(e["status"] !in listOf("已完成","已取消"))IconButton(onClick=onComplete,modifier=Modifier.testTag("complete_${e.id}")){Icon(Icons.Outlined.RadioButtonUnchecked,"完成${e.title}")}
+                else Icon(kindIcon(Kind.TASK),null,Modifier.padding(12.dp))
+                Column(Modifier.weight(1f).clickable(onClick=onOpen).padding(vertical=8.dp)) {Text(e.title,style=MaterialTheme.typography.titleMedium);s.find(e.parentId)?.let{Text(it.title,color=Muted,style=MaterialTheme.typography.bodySmall)}}
+            }
+            TextButton(onClick=onReschedule,modifier=Modifier.heightIn(min=48.dp)){Text("${TimeRules.taskBucket(e,now)} · ${e["date"].ifBlank{"未设日期"}} ${e["time"]} · 改期",color=if(TimeRules.taskBucket(e,now)=="逾期")MaterialTheme.colorScheme.error else Muted)}
         }
     }
 }
 
-@Composable private fun HomeScreen(vm:WorkbookViewModel,s:Snapshot,onQuick:()->Unit) {
-    var discard by remember { mutableStateOf<Draft?>(null) }
-    val tasks=s.entries.filter{it.kind==Kind.TASK}
-    val today=tasks.filter{TimeRules.taskBucket(it)=="今日"}
-    val overdue=tasks.filter{TimeRules.taskBucket(it)=="逾期"}
+@Composable private fun HomeScreen(vm:WorkbookViewModel,s:Snapshot) {
     val visits=s.entries.filter{it.kind==Kind.INTERACTION}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("home_scroll"),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        if(BuildConfig.FLAVOR=="qa") Badge("验收空间 · 仅使用虚构资料")
-        Text(TimeRules.today().format(DateTimeFormatter.ofPattern("M月d日 EEEE",java.util.Locale.CHINA)),color=Muted,style=MaterialTheme.typography.bodySmall)
-        Text("把每次沟通，\n接着做好。",style=MaterialTheme.typography.headlineLarge,color=Brand)
-        Text("记录重要的事，让下一步更清楚。",color=Muted)
-        Surface(color=Green,shape=RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                    Column(Modifier.weight(1f)) { Text("今日待办",color=Color.White.copy(alpha=.85f)); Text("${today.size}",style=MaterialTheme.typography.headlineLarge,color=Color.White,modifier=Modifier.testTag("today_count")) }
-                    Column(Modifier.weight(1f)) { Text("逾期事项",color=Color.White.copy(alpha=.85f)); Text("${overdue.size}",style=MaterialTheme.typography.headlineLarge,color=Color.White,modifier=Modifier.testTag("overdue_count")) }
-                    Column(Modifier.weight(1f)) { Text("拜访 / 沟通",color=Color.White.copy(alpha=.85f)); Text("${visits.size}",style=MaterialTheme.typography.headlineLarge,color=Color.White) }
-                }
-                Button(onClick=onQuick,colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=Brand),modifier=Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("quick_record")) {Icon(Icons.Outlined.Add,null);Spacer(Modifier.width(8.dp));Text("记一笔")}
-            }
-        }
-        SectionTitle("需要跟进","全部待办") {vm.navigate("tasks")}
-        if(today.isEmpty()&&overdue.isEmpty()) EmptyCard("今天从容安排","未来事项和未设日期的跟进，都可以在“全部待办”找到。")
-        (overdue+today).take(3).forEach {EntryCard(it,s){vm.navigate("detail:${it.id}")}}
-        if(s.drafts.isNotEmpty()) {
-            SectionTitle("继续草稿")
-            s.drafts.sortedByDescending{it.updatedAt}.forEach {d->Surface(onClick={vm.edit(d.entry,d)},shape=RoundedCornerShape(14.dp),color=Mint,modifier=Modifier.fillMaxWidth().testTag("draft_${d.id}")) {
-                Column(Modifier.padding(16.dp)) {Text(d.entry.title.ifBlank { "未完成的${kindLabel(d.entry.kind)}" },fontWeight=FontWeight.SemiBold);Text(d.entry["content"].ifBlank{"点击继续填写"},maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall);TextButton(onClick={discard=d}){Text("放弃此草稿")}}
-            }}
-        }
-        val upcoming=s.entries.filter{it.kind==Kind.ACTIVITY&&it["status"] !in listOf("已完成","已取消")&&(TimeRules.parseDateTime(it["end"])?:0)>=System.currentTimeMillis()}.sortedBy{it["start"]}.take(2)
-        if(upcoming.isNotEmpty()) {SectionTitle("临近活动","查看全部"){vm.navigate("activities",true)};upcoming.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
+    val tasks=s.entries.filter{it.kind==Kind.TASK&&TimeRules.taskBucket(it,vm.clockNow) in listOf("逾期","今日")}.sortedBy{TimeRules.taskDue(it)}
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp).testTag("home_scroll"),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Text(TimeRules.today(vm.clockNow).format(DateTimeFormatter.ofPattern("M月d日 EEEE",java.util.Locale.CHINA)),color=Muted,style=MaterialTheme.typography.bodyMedium)
+        PrimaryAction("记一笔",{vm.create(Kind.INTERACTION)},Modifier.fillMaxWidth().testTag("quick_record"))
+        Row(verticalAlignment=Alignment.CenterVertically) {Text("需要跟进",style=MaterialTheme.typography.titleMedium,modifier=Modifier.weight(1f));TextButton(onClick={vm.navigate("tasks")},modifier=Modifier.testTag("tasks_all")){Text("全部待办")}}
+        if(tasks.isEmpty())Text("今天暂无待办，随时记下新进展。",color=Muted,style=MaterialTheme.typography.bodyMedium)
+        tasks.take(2).forEach{FollowUpRow(it,s,vm.clockNow,{vm.navigate("detail:${it.id}")},{vm.taskStatus(it,"已完成")},{vm.edit(it)})}
         SectionTitle("最近记录","查找历史"){vm.navigate("search")}
-        if(visits.isEmpty()) EmptyCard("每一次交流，都值得记下","从“记一笔”开始。也可以先建单位或客户，再记录沟通。")
-        visits.sortedByDescending{it.occurredAt}.take(5).forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
-        Text("仅保存在本机 · 可离线使用",color=Muted,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(vertical=12.dp))
+        if(visits.isEmpty())Text("从“记一笔”开始，只写一句也会保存。",color=Muted)
+        visits.sortedByDescending{it.updatedAt}.take(5).forEach{RecordRow(it,s){vm.navigate("detail:${it.id}")}}
+        if(visits.isNotEmpty())Text("按最近编辑排列 · 卡片标注发生时间",style=MaterialTheme.typography.bodySmall,color=Muted)
+        val drafts=s.drafts.filter{!it.isNoteBuffer && (it.entry.title.isNotBlank()||it.entry["content"].isNotBlank()||it.entry["plan"].isNotBlank()||s.attachments.any{a->a.ownerId==it.entry.id})}
+        if(drafts.isNotEmpty()){SectionTitle("待整理的填写","查看 ${drafts.size} 份"){vm.navigate("drafts")};drafts.take(2).forEach{DraftRow(vm,it,s)}}
+        val activities=s.entries.filter{it.kind==Kind.ACTIVITY&&it["status"] !in listOf("已完成","已取消")}.sortedBy{TimeRules.parseDateTime(it["start"])?:Long.MAX_VALUE}.take(2)
+        if(activities.isNotEmpty()){SectionTitle("活动安排","全部活动"){vm.navigate("activities",true)};activities.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
+        Text(if(BuildConfig.FLAVOR=="qa")"验收空间 · 虚构资料" else "仅保存在本机 · 可离线使用",color=Muted,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(vertical=16.dp))
     }
-    discard?.let { d->AlertDialog(onDismissRequest={discard=null},title={Text("放弃此草稿")},text={Text("尚未提交的填写内容将被移除。如果在编辑已有记录，正式记录仍保留。")},confirmButton={TextButton(onClick={discard=null;vm.discard(d)}){Text("确认放弃")}},dismissButton={TextButton(onClick={discard=null}){Text("继续保留")}}) }
 }
-
+@Composable private fun DraftRow(vm:WorkbookViewModel,d:Draft,s:Snapshot) {
+    var confirm by remember{mutableStateOf(false)}
+    val original=s.find(d.entry.id)
+    val staleTask=isStaleTaskDraft(d,original)
+    val reason=if(staleTask)"这条跟进已有更新，旧填写保留供查看和复制。" else d.recoveryReason
+    Surface(onClick={if(reason.isNotBlank())confirm=true else vm.edit(d.entry,d)},color=Mint,shape=AppShapes.card,modifier=Modifier.fillMaxWidth().testTag("draft_${d.id}")) {
+        Column(Modifier.padding(16.dp)){Text(d.entry.title.ifBlank{d.entry["content"].take(50).ifBlank{"${kindLabel(d.entry.kind)}填写"}},fontWeight=FontWeight.Medium);if(reason.isNotBlank())Text(reason,color=Muted,style=MaterialTheme.typography.bodySmall)}
+    }
+    if(confirm && staleTask) {
+        AlertDialog(onDismissRequest={confirm=false},title={Text("查看旧跟进填写")},
+            text={SelectionContainer {Column(Modifier.verticalScroll(rememberScrollState()).testTag("stale_task_draft_preview"),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Text("当前跟进保留后来修改的日期、提醒和状态。可复制旧内容，再编辑当前跟进。",color=Muted)
+                Text("当前跟进",fontWeight=FontWeight.SemiBold);Text(original!!.title)
+                Text("日期：${original["date"].ifBlank{"未设日期"}}\n提醒：${if(original["reminder"]=="true")"开启" else "关闭"}\n状态：${original["status"]}")
+                Text("保留的旧填写",fontWeight=FontWeight.SemiBold);Text(d.entry.title)
+                d.entry.fields.filterValues{it.isNotBlank()}.forEach{(k,v)->Text("${fieldLabel(k)}：${if(k=="reminder") {if(v=="true")"开启" else "关闭"} else v}")}
+            }}},
+            confirmButton={TextButton(onClick={confirm=false;vm.edit(original!!)},modifier=Modifier.testTag("edit_current_task")){Text("编辑当前跟进")}},
+            dismissButton={TextButton(onClick={confirm=false}){Text("保留旧填写")}})
+    } else if(confirm) {
+        val conflict=original!=null && d.recoveryReason.contains("保留")
+        AlertDialog(onDismissRequest={confirm=false},title={Text(if(conflict)"选择继续编辑的内容" else "修正旧填写")},
+            text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+                Text(d.recoveryReason)
+                if(conflict){Text("当前记录",fontWeight=FontWeight.SemiBold);Text(original!!["content"]);Text("保留的旧填写",fontWeight=FontWeight.SemiBold);Text(d.entry["content"]);Text("采用旧填写后，当前记录内容也会另存到待整理的填写，仍可找回。",color=Muted)}
+                else Text(d.entry["content"])
+            }},confirmButton={TextButton(onClick={confirm=false;vm.edit(d.entry,d)}){Text(if(conflict)"采用旧填写继续编辑" else "继续修正")}},
+            dismissButton={TextButton(onClick={confirm=false}){Text(if(conflict)"保留当前记录" else "暂不修改")}})
+    }
+}
+@Composable private fun DraftList(vm:WorkbookViewModel,s:Snapshot) {
+    var discard by remember{mutableStateOf<Draft?>(null)}
+    Column{BackTitle("待整理的填写",vm::back);Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        s.drafts.filter{!it.isNoteBuffer || it.recoveryReason.isNotBlank()}.forEach{DraftRow(vm,it,s);TextButton(onClick={discard=it}){Text("放弃这份填写")}}
+    }}
+    discard?.let{d->ConfirmDialog("放弃这份填写","正式记录仍然保留，尚未提交的填写内容将移除。",{discard=null;vm.discard(d)},{discard=null},"确认放弃",destructive=true)}
+}
 @Composable fun ChoiceFilter(label:String,choices:List<String>,value:String,onValue:(String)->Unit) {
-    var open by remember { mutableStateOf(false) }
-    OutlinedButton(onClick={open=true},modifier=Modifier.heightIn(min=48.dp).testTag("filter_$label")) {Text(if(value.isBlank()) label else value);Icon(Icons.Outlined.ExpandMore,null)}
-    if(open) AlertDialog(onDismissRequest={open=false},title={Text(label)},text={Column(Modifier.verticalScroll(rememberScrollState())) {
-        (listOf("全部")+choices).distinct().forEach { choice->TextButton(onClick={onValue(if(choice=="全部") "" else choice);open=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text(choice)} }
-    }},confirmButton={TextButton(onClick={open=false}){Text("关闭")}})
+    var open by remember{mutableStateOf(false)}
+    SecondaryAction(if(value.isBlank())label else value,{open=true},Modifier.testTag("filter_$label"))
+    if(open)AppBottomSheet(label,{open=false}){(listOf("全部")+choices).distinct().forEach{choice->TextButton(onClick={onValue(if(choice=="全部")"" else choice);open=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text(choice)}}}
 }
-
 @Composable private fun EntryList(vm:WorkbookViewModel,s:Snapshot,kind:Kind) {
-    var query by rememberSaveable(kind) { mutableStateOf("") }
-    var type by rememberSaveable(kind) { mutableStateOf("") }
-    var stage by rememberSaveable(kind) { mutableStateOf("") }
-    var date by rememberSaveable(kind) { mutableStateOf("") }
-    var archived by rememberSaveable(kind) { mutableStateOf(false) }
-    val matches=searchEntries(s,query,archived).filter{it.kind==kind}.filter{type.isBlank()||it["type"]==type||it["tags"].contains(type)}.filter{stage.isBlank()||it["stage"]==stage||it["status"]==stage}.filter{date.isBlank()||it["start"].startsWith(date)}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("list_scroll"),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+    var query by rememberSaveable(kind){mutableStateOf("")};var type by rememberSaveable(kind){mutableStateOf("")};var stage by rememberSaveable(kind){mutableStateOf("")}
+    var date by rememberSaveable(kind){mutableStateOf("")};var archived by rememberSaveable(kind){mutableStateOf(false)};var filters by remember{mutableStateOf(false)}
+    val matches=searchEntries(s,query,archived).filter{it.kind==kind&&(type.isBlank()||it["type"]==type||it["tags"].contains(type))&&(stage.isBlank()||it["stage"]==stage||it["status"]==stage)&&(date.isBlank()||it["start"].startsWith(date))}
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("list_scroll"),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         SectionTitle(when(kind){Kind.ORGANIZATION->"合作单位";Kind.CUSTOMER->"客户与家庭";else->"活动安排"},"新增${kindLabel(kind)}"){vm.create(kind)}
-        OutlinedTextField(query,{query=it},label={Text("搜索名称、联系人、电话或内容")},leadingIcon={Icon(Icons.Outlined.Search,null)},modifier=Modifier.fillMaxWidth().testTag("list_search"),singleLine=true)
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-            ChoiceFilter(if(kind==Kind.CUSTOMER) "需求标签" else "类型",if(kind==Kind.CUSTOMER) vm.tags else s.entries.filter{it.kind==kind}.map{it["type"]}.filter{it.isNotBlank()}.distinct(),type,{type=it})
-            ChoiceFilter("阶段",s.entries.filter{it.kind==kind}.map{it[if(kind==Kind.ACTIVITY)"status" else "stage"]}.filter{it.isNotBlank()}.distinct(),stage,{stage=it})
-        }
-        if(kind==Kind.ACTIVITY) OutlinedTextField(date,{date=it},label={Text("按日期查看（yyyy-MM-dd，可留空）")},modifier=Modifier.fillMaxWidth().testTag("activity_date_filter"),singleLine=true)
+        AppTextField(query,{query=it},"搜索名称、联系人、电话或内容",Modifier.fillMaxWidth().testTag("list_search"),singleLine=true)
+        Row(verticalAlignment=Alignment.CenterVertically){Text("${matches.size} 个${kindLabel(kind)}",color=Muted,modifier=Modifier.weight(1f));TextButton(onClick={filters=true},modifier=Modifier.testTag("list_filters")){Text("筛选")}}
+        if(matches.isEmpty())EmptyCard("没有匹配的${kindLabel(kind)}","可以新建，或调整关键词和筛选范围。")
+        if(kind==Kind.ACTIVITY) {
+            listOf("已安排","时间待定","已结束").forEach{group->
+                val rows=matches.filter{when(group){"已结束"->it["status"] in listOf("已完成","已取消");"时间待定"->it["start"].isBlank()&&it["status"] !in listOf("已完成","已取消");else->it["start"].isNotBlank()&&it["status"] !in listOf("已完成","已取消")}}
+                if(rows.isNotEmpty()){SectionTitle(group);rows.sortedBy{it["start"]}.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
+            }
+        } else matches.sortedByDescending{it.updatedAt}.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
+    }
+    if(filters)AppBottomSheet("筛选${kindLabel(kind)}",{filters=false}) {
+        ChoiceFilter(if(kind==Kind.CUSTOMER)"需求标签" else "类型",if(kind==Kind.CUSTOMER)vm.tags else s.entries.filter{it.kind==kind}.map{it["type"]}.filter{it.isNotBlank()}.distinct(),type,{type=it})
+        ChoiceFilter("阶段",s.entries.filter{it.kind==kind}.map{it[if(kind==Kind.ACTIVITY)"status" else "stage"]}.filter{it.isNotBlank()}.distinct(),stage,{stage=it})
+        if(kind==Kind.ACTIVITY)DateField("活动日期",date,{date=it},Modifier.fillMaxWidth().testTag("activity_date_filter"))
         else Row(verticalAlignment=Alignment.CenterVertically){Checkbox(archived,{archived=it});Text("包含已归档")}
-        Text("${matches.size} 个${kindLabel(kind)}",color=Muted,style=MaterialTheme.typography.bodySmall)
-        if(matches.isEmpty()) EmptyCard(if(query.isBlank()) "还没有${kindLabel(kind)}" else "没有找到匹配内容",if(query.isBlank()) "先补充最少信息，其余可以以后再完善。" else "试试姓名、电话、业务标签，或包含已归档。")
-        matches.sortedByDescending{it.updatedAt}.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
+        PrimaryAction("查看结果",{filters=false},Modifier.fillMaxWidth())
     }
 }
-
 fun searchEntries(s:Snapshot,query:String,includeArchived:Boolean):List<Entry> {
     val q=query.trim()
-    val directly=s.entries.filter{q.isBlank()||it.title.contains(q,true)||it.fields.values.any{v->v.contains(q,true)}}.map{it.id}.toSet()
-    val parentMatches=s.entries.filter{it.id in directly}.mapNotNull{it.parentId}.toSet()
-    return s.entries.filter{(includeArchived||!it.archived)&&(q.isBlank()||it.id in directly||it.id in parentMatches)}
+    val fileOwners=s.attachments.filter{it.name.contains(q,true)}.map{it.ownerId}.toSet()
+    val direct=s.entries.filter{q.isBlank()||it.id in fileOwners||it.title.contains(q,true)||it.fields.filterKeys{k->!k.startsWith("_")}.values.any{v->v.contains(q,true)}}.map{it.id}.toSet()
+    val parents=s.entries.filter{it.id in direct}.mapNotNull{it.parentId}.toSet()
+    return s.entries.filter{(includeArchived||!it.archived)&&(q.isBlank()||it.id in direct||it.id in parents)}
 }
 @Composable private fun SearchScreen(vm:WorkbookViewModel,s:Snapshot) {
     var query by rememberSaveable{mutableStateOf("")};var archived by rememberSaveable{mutableStateOf(false)}
-    var dateFrom by rememberSaveable{mutableStateOf("")};var dateTo by rememberSaveable{mutableStateOf("")}
-    var tag by rememberSaveable{mutableStateOf("")}
-    val results=searchEntries(s,query,archived).filter { e->
-        val d=Instant.ofEpochMilli(e.occurredAt).atZone(TimeRules.zone).toLocalDate().toString()
-        (tag.isBlank()||e["tags"].contains(tag)||s.entries.find{it.id==e.parentId}?.get("tags")?.contains(tag)==true)&&
-            (e.kind!=Kind.INTERACTION || ((dateFrom.isBlank()||d>=dateFrom)&&(dateTo.isBlank()||d<=dateTo)))
-    }
-    Column(Modifier.fillMaxSize()) {BackTitle("查找历史",vm::back)
+    var from by rememberSaveable{mutableStateOf("")};var to by rememberSaveable{mutableStateOf("")};var tag by rememberSaveable{mutableStateOf("")}
+    var objectId by rememberSaveable{mutableStateOf<String?>(null)};var objectPicker by remember{mutableStateOf(false)};var filters by remember{mutableStateOf(false)}
+    var type by rememberSaveable{mutableStateOf("")}
+    val valid=from.isBlank()||to.isBlank()||from<=to
+    val results=searchEntries(s,query,archived).filter{e->val d=TimeRules.formatDate(e.occurredAt)
+        valid&&(tag.isBlank()||e["tags"].contains(tag)||s.find(e.parentId)?.get("tags")?.contains(tag)==true)&&
+        (type.isBlank()||kindLabel(e.kind)==type)&&(objectId==null||e.parentId==objectId||e.id==objectId)&&
+        (e.kind!=Kind.INTERACTION||((from.isBlank()||d>=from)&&(to.isBlank()||d<=to)))}
+    Column(Modifier.fillMaxSize()){BackTitle("查找历史",vm::back,actions={TextButton(onClick={filters=true},modifier=Modifier.testTag("search_filters")){Text("筛选")}})
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(query,{query=it},label={Text("单位、客户、电话、标签、沟通内容")},modifier=Modifier.fillMaxWidth().testTag("global_search"))
-            ChoiceFilter("业务标签",vm.tags,tag,{tag=it})
-            OutlinedTextField(dateFrom,{dateFrom=it},label={Text("记录开始日期 yyyy-MM-dd")},modifier=Modifier.fillMaxWidth())
-            OutlinedTextField(dateTo,{dateTo=it},label={Text("记录结束日期 yyyy-MM-dd")},modifier=Modifier.fillMaxWidth())
-            Row(verticalAlignment=Alignment.CenterVertically){Checkbox(archived,{archived=it});Text("包含已归档")}
-            listOf(Kind.ORGANIZATION,Kind.CUSTOMER,Kind.ACTIVITY,Kind.INTERACTION).forEach {kind->
-                val group=results.filter{it.kind==kind};SectionTitle("${kindLabel(kind)} · ${group.size}")
-                group.sortedByDescending{it.occurredAt}.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
+            AppTextField(query,{query=it},"搜索正文、名称、电话或附件名",Modifier.fillMaxWidth().testTag("global_search"))
+            if(!valid)Text("结束日期不能早于开始日期",color=MaterialTheme.colorScheme.error)
+            if(query.isBlank())Text("最近记录",color=Muted)
+            listOf(Kind.INTERACTION,Kind.ORGANIZATION,Kind.CUSTOMER,Kind.ACTIVITY,Kind.TASK,Kind.CONTACT,Kind.RECIPIENT).forEach{kind->
+                val group=results.filter{it.kind==kind}.sortedByDescending{it.occurredAt}.let{if(query.isBlank())it.take(10) else it}
+                if(group.isNotEmpty()){SectionTitle("${kindLabel(kind)} · ${group.size}");group.forEach{e->EntryCard(e,s){vm.navigate("detail:${e.id}")}
+                    if(query.isNotBlank()&&e.kind==Kind.INTERACTION){val p=e["content"].indexOf(query,ignoreCase=true);if(p>60)Text("…"+e["content"].substring((p-20).coerceAtLeast(0),(p+query.length+60).coerceAtMost(e["content"].length))+"…",color=Muted,style=MaterialTheme.typography.bodyMedium)}
+                }}
             }
-            if(results.none{it.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER,Kind.ACTIVITY,Kind.INTERACTION)}) EmptyCard("没有找到匹配内容","请换一个关键词或扩大日期范围。")
+            if(results.isEmpty())Text("没有找到匹配内容",color=Muted)
         }
     }
+    if(filters)AppBottomSheet("筛选范围",{filters=false}) {
+        DateField("发生日期从",from,{from=it},Modifier.fillMaxWidth());DateField("至",to,{to=it},Modifier.fillMaxWidth())
+        SecondaryAction(s.find(objectId)?.title ?: "全部对象",{objectPicker=true},Modifier.fillMaxWidth())
+        ChoiceFilter("业务类型",listOf("沟通记录","单位","客户","活动","待办"),type,{type=it});ChoiceFilter("业务标签",vm.tags,tag,{tag=it})
+        Row(verticalAlignment=Alignment.CenterVertically){Checkbox(archived,{archived=it});Text("包含已归档")}
+        PrimaryAction("查看结果",{filters=false},Modifier.fillMaxWidth())
+    }
+    if(objectPicker)ObjectPickerPanel(s.entries.filter{it.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER)},objectId,{objectId=it;objectPicker=false},{objectPicker=false},title="筛选对象")
 }
-
-@Composable private fun TaskList(vm:WorkbookViewModel,s:Snapshot) {
-    var bucket by rememberSaveable {mutableStateOf("今日")}
-    Column(Modifier.fillMaxSize()) {BackTitle("全部待办",vm::back,actions={TextButton(onClick={vm.create(Kind.TASK)}){Text("新增")}})
+@Composable private fun TaskList(vm:WorkbookViewModel,s:Snapshot,onNotifications:()->Unit) {
+    var history by rememberSaveable{mutableStateOf(false)};var editing by remember{mutableStateOf<Entry?>(null)}
+    Column(Modifier.fillMaxSize()){BackTitle("全部待办",vm::back,actions={TextButton(onClick={vm.create(Kind.TASK)}){Text("新增")}})
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                listOf("今日","未来","逾期","未设日期","已完成","已取消").forEach{b->FilterChip(selected=bucket==b,onClick={bucket=b},label={Text(b)},modifier=Modifier.testTag("bucket_$b"))}
+            Row{FilterChip(!history,{history=false},label={Text("未完成")});Spacer(Modifier.width(8.dp));FilterChip(history,{history=true},label={Text("已完成 / 取消")})}
+            val groups=if(history)listOf("已完成","已取消") else listOf("逾期","今日","未来","未设日期")
+            groups.forEach{b->val rows=s.entries.filter{it.kind==Kind.TASK&&TimeRules.taskBucket(it,vm.clockNow)==b}.sortedBy{TimeRules.taskDue(it)?:Long.MAX_VALUE}
+                if(rows.isNotEmpty()){SectionTitle("$b · ${rows.size}");rows.forEach{FollowUpRow(it,s,vm.clockNow,{vm.navigate("detail:${it.id}")},{vm.taskStatus(it,"已完成")},{editing=it})}}
             }
-            val tasks=s.entries.filter{it.kind==Kind.TASK&&TimeRules.taskBucket(it)==bucket}.sortedBy{it["date"]+it["time"]}
-            Text("${tasks.size} 项",color=Muted,modifier=Modifier.testTag("task_count"))
-            if(tasks.isEmpty()) EmptyCard("没有${bucket}事项","新增跟进时可只记标题，日期和提醒可以稍后补充。")
-            tasks.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
+            if(s.entries.none{it.kind==Kind.TASK&&TimeRules.taskBucket(it,vm.clockNow) in groups})Text("没有${if(history)"已结束" else "未完成"}事项",color=Muted)
         }
     }
+    editing?.let{FollowUpPanel(vm,s,it,s.find(it.sourceId),{editing=null},onNotifications)}
 }
 
-@Composable private fun DetailScreen(vm:WorkbookViewModel,e:Entry,s:Snapshot,onAttachment:(Attachment)->Unit) {
+@Composable private fun DetailScreen(vm:WorkbookViewModel,e:Entry,s:Snapshot,onAttachment:(Attachment)->Unit,onNotifications:()->Unit) {
     val context=LocalContext.current
-    var cancel by remember {mutableStateOf(false)}
-    var archiveConfirm by remember{mutableStateOf(false)}
-    var export by remember{mutableStateOf(false)}
-    Column(Modifier.fillMaxSize()) {
-        BackTitle(kindLabel(e.kind),vm::back,actions={TextButton(onClick={vm.edit(e)},modifier=Modifier.testTag("edit_entry")){Text("编辑")}})
+    var cancel by remember{mutableStateOf(false)};var archive by remember{mutableStateOf(false)};var export by remember{mutableStateOf(false)}
+    var more by rememberSaveable(e.id){mutableStateOf(false)};var taskEdit by remember{mutableStateOf<Entry?>(null)}
+    val dossier=e.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER)
+    val tasks=s.entries.filter{it.kind==Kind.TASK&&(it.parentId==e.id||it.sourceId==e.id)}
+    Column(Modifier.fillMaxSize()){BackTitle(kindLabel(e.kind),vm::back,actions={TextButton(onClick={vm.edit(e)},modifier=Modifier.testTag("edit_entry")){Text("编辑")}})
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("detail_scroll"),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-            Text(e.title,style=MaterialTheme.typography.headlineMedium,color=Brand)
-            if(e.archived) Badge("已归档 · 历史保留")
-            val parent=s.entries.find{it.id==e.parentId}
-            if(parent!=null) TextButton(onClick={vm.navigate("detail:${parent.id}")}){Text("关联${kindLabel(parent.kind)}：${parent.title}")}
-            if(e.kind==Kind.INTERACTION) {
-                Text(TimeRules.formatDateTime(e.occurredAt),color=Muted)
-                if(parent==null) Badge("临时未关联 · 编辑可补充对象")
-            }
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                if(e.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER)) {
-                    Button(onClick={vm.create(Kind.INTERACTION,e)},modifier=Modifier.testTag("add_interaction")){Icon(Icons.Outlined.Add,null);Text(if(e.kind==Kind.ORGANIZATION) "记一次拜访" else "记一次沟通")}
-                    OutlinedButton(onClick={vm.create(Kind.CONTACT,e)},modifier=Modifier.testTag("add_contact")){Text("添加联系人")}
-                    if(e.kind==Kind.CUSTOMER) OutlinedButton(onClick={vm.create(Kind.RECIPIENT,e)},modifier=Modifier.testTag("add_recipient")){Text("添加服务对象")}
-                }
-                if(e.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER,Kind.ACTIVITY)) OutlinedButton(onClick={vm.create(Kind.TASK,e)},modifier=Modifier.testTag("add_task")){Text(if(e.kind==Kind.ACTIVITY)"添加筹备待办" else "添加跟进")}
-                if(e.kind==Kind.TASK) {
-                    if(e["status"]!="已完成") Button(onClick={vm.taskStatus(e,"已完成")},modifier=Modifier.testTag("complete_task")){Text("完成跟进")}
-                    if(e["status"]!="未完成") OutlinedButton(onClick={vm.taskStatus(e,"未完成")}){Text("重新打开")}
-                    if(e["status"]=="未完成") OutlinedButton(onClick={vm.taskStatus(e,"已取消")}){Text("取消跟进")}
-                    TextButton(onClick={vm.edit(e)}){Text("改期 / 完成备注")}
-                }
-                if(e.kind==Kind.ACTIVITY) {
-                    if(e["status"]!="已取消") OutlinedButton(onClick={cancel=true}){Text("取消活动")}
-                    OutlinedButton(onClick={vm.create(Kind.CUSTOMER);vm.editor?.entry?.let {vm.change(it.copy(fields=it.fields+mapOf("linkedActivity" to e.id,"source" to "活动：${e.title}")))}}){Text("新建来源客户")}
-                }
-                if(e.kind==Kind.CONTACT && e["phone"].isNotBlank()) OutlinedButton(onClick={runCatching{context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+Uri.encode(e["phone"]))))}.onFailure{vm.message="没有可用的拨号应用"}}){Icon(Icons.Outlined.Phone,null);Text("打开拨号")}
-            }
-            val keys=e.fields.keys.filter{it !in listOf("occurredDate","occurredTime")&&e[it].isNotBlank()}
-            if(keys.isNotEmpty()) Surface(color=Color.White,shape=RoundedCornerShape(14.dp)) {
-                Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-                    keys.forEach {key->Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                        Text(fieldLabel(key),style=MaterialTheme.typography.labelMedium,color=Muted)
-                        val value=e[key]
-                        Text(if(key in listOf("linkedOrganization","linkedActivity","organizationId")) s.entries.find{it.id==value}?.title?:"未找到关联对象" else if(value=="true")"已开启" else if(value=="false")"未开启" else value,style=MaterialTheme.typography.bodyLarge)
-                    }}
-                }
-            }
-            if(e.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER)) {
-                SectionTitle("联系人")
-                val contacts=s.entries.filter{it.kind==Kind.CONTACT&&it.parentId==e.id}
-                if(contacts.isEmpty()) Text("尚未添加联系人",color=Muted)
-                contacts.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
-                if(e.kind==Kind.CUSTOMER) {SectionTitle("服务对象");val recipients=s.entries.filter{it.kind==Kind.RECIPIENT&&it.parentId==e.id};if(recipients.isEmpty())Text("按需填写，器具和培训咨询不必填写",color=Muted);recipients.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
+            Text(e.title,style=MaterialTheme.typography.headlineSmall,color=Brand)
+            if(e.archived)Badge("已归档 · 历史保留")
+            s.find(e.parentId)?.let{parent->TextButton(onClick={vm.navigate("detail:${parent.id}")}){Text("关联${kindLabel(parent.kind)}：${parent.title}")}}
+            if(dossier) {
+                Text(listOf(e["type"],e["area"],e["stage"]).filter{it.isNotBlank()}.joinToString(" · "),color=Muted)
+                PrimaryAction("记一次沟通",{vm.create(Kind.INTERACTION,e)},Modifier.fillMaxWidth().testTag("add_interaction"))
+                SectionTitle("后续跟进","添加跟进"){vm.create(Kind.TASK,e)}
+                tasks.filter{it["status"] !in listOf("已完成","已取消")}.forEach{FollowUpRow(it,s,vm.clockNow,{vm.navigate("detail:${it.id}")},{vm.taskStatus(it,"已完成")},{taskEdit=it})}
                 SectionTitle(if(e.kind==Kind.ORGANIZATION)"拜访时间线" else "沟通时间线")
-                val interactions=s.entries.filter{it.kind==Kind.INTERACTION&&it.parentId==e.id}.sortedByDescending{it.occurredAt}
-                if(interactions.isEmpty()) Text("每次沟通独立记录，不会覆盖历史。",color=Muted)
-                interactions.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
+                val notes=s.entries.filter{it.kind==Kind.INTERACTION&&it.parentId==e.id}.sortedByDescending{it.occurredAt}
+                if(notes.isEmpty())Text("每次沟通单独保存，随时回来查看。",color=Muted)
+                notes.forEach{RecordRow(it,s){vm.navigate("detail:${it.id}")}}
+                SectionTitle("联系人","添加联系人"){vm.create(Kind.CONTACT,e)}
+                s.entries.filter{it.kind==Kind.CONTACT&&it.parentId==e.id}.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}
+                if(e.kind==Kind.CUSTOMER){SectionTitle("服务对象","添加服务对象"){vm.create(Kind.RECIPIENT,e)};s.entries.filter{it.kind==Kind.RECIPIENT&&it.parentId==e.id}.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
             }
-            val tasks=s.entries.filter{it.kind==Kind.TASK&&(it.parentId==e.id||it.sourceId==e.id)}
-            if(tasks.isNotEmpty()){SectionTitle(if(e.kind==Kind.ACTIVITY)"筹备清单" else "关联跟进");tasks.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
-            if(e.kind==Kind.TASK&&e.sourceId!=null) s.entries.find{it.id==e.sourceId}?.let{source->TextButton(onClick={vm.navigate("detail:${source.id}")}){Text("查看来源记录：${source.title}")}}
-            val files=s.attachments.filter{it.ownerId==e.id}
-            if(files.isNotEmpty()) {SectionTitle("附件");files.forEach{a->OutlinedButton(onClick={onAttachment(a)},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Icon(Icons.Outlined.AttachFile,null);Text(a.name,modifier=Modifier.weight(1f))}}}
-            if(e.kind in listOf(Kind.INTERACTION,Kind.ACTIVITY)) OutlinedButton(onClick={export=true},modifier=Modifier.fillMaxWidth().testTag("export_summary")){Text("预览 / 导出摘要")}
-            if(e.kind in listOf(Kind.ORGANIZATION,Kind.CUSTOMER)) TextButton(onClick={archiveConfirm=true}){Text(if(e.archived)"恢复到列表" else "归档${kindLabel(e.kind)}")}
-            Text("创建于 ${TimeRules.formatDateTime(e.createdAt)}\n更新于 ${TimeRules.formatDateTime(e.updatedAt)}",color=Muted,style=MaterialTheme.typography.bodySmall)
+            if(e.kind==Kind.TASK) {
+                Badge(TimeRules.taskBucket(e,vm.clockNow));Text("${e["date"].ifBlank{"未设日期"}} ${e["time"]}",color=Muted)
+                if(e["status"] !in listOf("已完成","已取消"))PrimaryAction("完成跟进",{vm.taskStatus(e,"已完成")},Modifier.fillMaxWidth().testTag("complete_task"))
+                SecondaryAction("改期 / 完成备注",{taskEdit=e},Modifier.fillMaxWidth().testTag("reschedule_task"))
+                if(e["completionNote"].isNotBlank())Text("完成备注\n${e["completionNote"]}")
+                s.find(e.sourceId)?.let{source->TextButton(onClick={vm.navigate("detail:${source.id}")}){Text("查看来源记录：${noteTitle(source,s)}")}}
+            }
+            if(e.kind==Kind.ACTIVITY) {
+                Badge(e["status"]);Text(e["start"].ifBlank{"时间待定"}+e["end"].takeIf{it.isNotBlank()}?.let{" 至 $it"}.orEmpty(),color=Muted)
+                listOf("location","goal","audience","plan","division","materials","precautions").filter{e[it].isNotBlank()}.forEach{Text("${fieldLabel(it)}\n${e[it]}")}
+                SectionTitle("筹备清单","添加筹备待办"){vm.create(Kind.TASK,e)}
+                tasks.forEach{FollowUpRow(it,s,vm.clockNow,{vm.navigate("detail:${it.id}")},{vm.taskStatus(it,"已完成")},{taskEdit=it})}
+                if(e["status"]=="已完成"){SectionTitle("执行与复盘");listOf("actualCount","execution","review","followup").filter{e[it].isNotBlank()}.forEach{Text("${fieldLabel(it)}\n${e[it]}")}}
+                SecondaryAction("新建来源客户",{vm.edit(Entry(kind=Kind.CUSTOMER,fields=mapOf("stage" to "新咨询","source" to "活动：${e.title}","linkedActivity" to e.id)))},Modifier.fillMaxWidth())
+            }
+            if(e.kind==Kind.CONTACT&&e["phone"].isNotBlank())SecondaryAction("打开拨号",{runCatching{context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+Uri.encode(e["phone"]))))}.onFailure{vm.message="没有可用的拨号应用"}},Modifier.fillMaxWidth())
+            if(e.kind in listOf(Kind.CONTACT,Kind.RECIPIENT,Kind.PROFILE)) e.fields.filterValues{it.isNotBlank()}.forEach{(k,v)->Text("${fieldLabel(k)}\n$v")}
+            s.attachments.filter{it.ownerId==e.id}.forEach{AttachmentRow(it,onAttachment)}
+            TextButton(onClick={more=!more}){Text(if(more)"收起详细资料" else "详细资料与更多操作")}
+            if(more) {
+                e.fields.filter{(k,v)->v.isNotBlank()&&!k.startsWith("_")}.forEach{(k,v)->Text("${fieldLabel(k)}\n${if(k in listOf("linkedActivity","linkedOrganization","organizationId"))s.find(v)?.title ?: "关联不可用" else v}")}
+                if(dossier)TextButton(onClick={archive=true},modifier=Modifier.testTag("archive_entry")){Text(if(e.archived)"恢复到列表" else "归档${kindLabel(e.kind)}")}
+                if(e.kind==Kind.TASK) {
+                    if(e["status"]!="未完成")TextButton(onClick={vm.taskStatus(e,"未完成")}){Text("重新打开")}
+                    else TextButton(onClick={vm.taskStatus(e,"已取消")}){Text("取消跟进")}
+                }
+                if(e.kind==Kind.ACTIVITY&&e["status"] !in listOf("已完成","已取消"))TextButton(onClick={cancel=true}){Text("取消活动")}
+                Text("创建于 ${TimeRules.formatDateTime(e.createdAt)}\n更新于 ${TimeRules.formatDateTime(e.updatedAt)}",color=Muted,style=MaterialTheme.typography.bodySmall)
+            }
+            if(e.kind==Kind.ACTIVITY)SecondaryAction("预览 / 导出摘要",{export=true},Modifier.fillMaxWidth().testTag("export_summary"))
         }
     }
-    if(cancel) AlertDialog(onDismissRequest={cancel=false},title={Text("取消活动，保留历史")},text={Text("活动提醒将撤销。请选择未完成筹备待办的处理方式。")},confirmButton={TextButton(onClick={cancel=false;vm.cancelActivity(e,true)}){Text("同时取消待办")}},dismissButton={TextButton(onClick={cancel=false;vm.cancelActivity(e,false)}){Text("保留待办")}})
-    if(archiveConfirm) AlertDialog(onDismissRequest={archiveConfirm=false},title={Text(if(e.archived)"恢复到列表" else "归档并保留历史")},text={Text("历史记录和附件都会保留。归档不会取消尚未完成的跟进，请在全部待办中单独处理。")},confirmButton={TextButton(onClick={archiveConfirm=false;vm.archive(e)}){Text("确认")}},dismissButton={TextButton(onClick={archiveConfirm=false}){Text("返回")}})
-    if(export) SummaryDialog(vm,e,s){export=false}
+    if(cancel)CancelActivityDialog({cancel=false},{cancel=false;vm.cancelActivity(e,it)})
+    if(archive)ConfirmDialog(if(e.archived)"恢复到列表" else "归档并保留历史","历史记录和附件保留，尚未完成的跟进仍在待办中。",{archive=false;vm.archive(e)},{archive=false})
+    if(export)SummaryDialog(vm,e,s){export=false}
+    taskEdit?.let{FollowUpPanel(vm,s,it,s.find(it.sourceId),{taskEdit=null},onNotifications)}
+}
+@Composable fun CancelActivityDialog(onDismiss:()->Unit,onConfirm:(Boolean)->Unit) {
+    var cancelTasks by remember{mutableStateOf(false)}
+    AlertDialog(onDismissRequest=onDismiss,title={Text("取消活动，保留历史")},text={Column{Text("活动提醒将撤销，历史资料保留。");Row(verticalAlignment=Alignment.CenterVertically){Checkbox(cancelTasks,{cancelTasks=it});Text("同时取消未完成的筹备待办",Modifier.weight(1f))}}},
+        confirmButton={TextButton(onClick={onConfirm(cancelTasks)}){Text("确认取消活动")}},dismissButton={TextButton(onClick=onDismiss){Text("不取消，返回")}})
 }

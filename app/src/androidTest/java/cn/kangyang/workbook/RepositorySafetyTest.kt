@@ -32,6 +32,10 @@ class RepositorySafetyTest {
             repository.database.dao().upsert(attachment)
             val saved = repository.save(interaction, draft.id)
             repository.save(interaction, draft.id)
+            // V1.1 explicitly confirms a follow-up; body/draft submission is side-effect free.
+            repository.createTaskIfAbsent(Entry(id = "followup-${saved.id}", kind = Kind.TASK,
+                title = "三天后回访", parentId = saved.parentId, sourceId = saved.id,
+                fields = mapOf("date" to "2026-11-01")))
             assertFalse(repository.saveDraft(draft.copy(revision = 2)))
             val one = repository.snapshot()
             assertEquals(1, one.entries.count { it.kind == Kind.INTERACTION })
@@ -65,7 +69,8 @@ class RepositorySafetyTest {
             val customer = source.save(Entry(kind = Kind.CUSTOMER, title = "示例家庭"))
             source.save(Entry(kind = Kind.CONTACT, title = "示例女儿", parentId = customer.id, fields = mapOf("role" to "女儿")))
             source.save(Entry(kind = Kind.RECIPIENT, title = "示例母亲", parentId = customer.id))
-            source.save(Entry(kind = Kind.INTERACTION, parentId = org.id, fields = mapOf("content" to "单位拜访", "nextStep" to "再次回访")))
+            val sourceNote = source.save(Entry(kind = Kind.INTERACTION, parentId = org.id, fields = mapOf("content" to "单位拜访", "nextStep" to "再次回访")))
+            source.createTaskIfAbsent(Entry(id = "followup-${sourceNote.id}", kind = Kind.TASK, title = "再次回访", parentId = org.id, sourceId = sourceNote.id))
             source.save(Entry(kind = Kind.INTERACTION, parentId = customer.id, fields = mapOf("content" to "客户沟通")))
             source.save(Entry(kind = Kind.ACTIVITY, title = "示例活动", fields = mapOf("start" to "2026-11-10 09:00", "end" to "2026-11-10 11:00", "organizationId" to org.id)))
             val draftEntry = Entry(kind = Kind.INTERACTION, fields = mapOf("content" to "尚未提交的中文草稿"))

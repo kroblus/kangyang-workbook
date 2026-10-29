@@ -27,7 +27,7 @@ import kotlinx.serialization.encodeToString
 
 @Serializable
 internal data class BackupManifest(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val appVersion: String,
     val createdAt: Long,
     val snapshot: Snapshot,
@@ -38,6 +38,7 @@ class PreparedRestore internal constructor(
     val appVersion: String,
     val createdAt: Long,
     internal val files: Map<String, ByteArray>,
+    val sourceSchemaVersion: Int = 2,
 ) {
     val summary: String get() {
         fun count(kind: Kind) = snapshot.entries.count { it.kind == kind }
@@ -71,8 +72,13 @@ class BackupManager(private val repository: Repository, @Suppress("UNUSED_PARAME
      * the complete new state. Old files remain available to the rollback snapshot.
      * checkpoint is a test seam, not a production UI control.
      */
-    suspend fun restore(prepared: PreparedRestore, checkpoint: ((String) -> Unit)? = null) = withContext(Dispatchers.IO) {
+    suspend fun restore(prepared: PreparedRestore, checkpoint: ((String) -> Unit)? = null) {
+        // Invalidate before waiting for the write lock. A slow attachment/save must not publish its
+        // callback into the newly restored data session, even if it started before this call.
+        val nextGeneration = repository.advanceGeneration()
+        withContext(Dispatchers.IO) {
         repository.mutationMutex.withLock {
+            repository.requireGeneration(nextGeneration)
             BackupCodec.validatePrepared(prepared)
             var totalMissing = 0L
             prepared.snapshot.attachments.distinctBy { it.relativePath }.forEach {
@@ -100,6 +106,7 @@ class BackupManager(private val repository: Repository, @Suppress("UNUSED_PARAME
             checkpoint?.invoke("files_staged")
             repository.replaceSnapshot(prepared.snapshot)
             checkpoint?.invoke("committed")
+        }
         }
     }
 }
@@ -184,13 +191,22 @@ internal object BackupCodec {
         }
         val manifestBytes = contents.remove("manifest.json") ?: throw DataProblem("备份缺少数据清单")
         val manifest = try { dataJson.decodeFromString<BackupManifest>(manifestBytes.toString(Charsets.UTF_8)) } catch (e: Exception) { throw DataProblem("备份数据清单无效或版本不兼容", e) }
-        if (manifest.schemaVersion != 1) throw DataProblem("备份数据版本 ${manifest.schemaVersion} 不受当前应用支持，请先更新应用")
+        if (manifest.schemaVersion !in 1..2) throw DataProblem("备份数据版本 ${manifest.schemaVersion} 不受当前应用支持，请先更新应用")
         if (manifest.appVersion.isBlank() || manifest.createdAt < 0) throw DataProblem("备份版本或时间信息无效")
-        return PreparedRestore(manifest.snapshot, manifest.appVersion, manifest.createdAt, contents).also(::validatePrepared)
+        val original = PreparedRestore(manifest.snapshot, manifest.appVersion, manifest.createdAt, contents, manifest.schemaVersion)
+        // Authenticate and validate the original source contract first; conversion must not hide
+        // corrupt relationships, missing bytes or an invalid V1 formal record.
+        validatePrepared(original, manifest.schemaVersion)
+        val compatible = original.let {
+            PreparedRestore(if (manifest.schemaVersion == 1) LegacyNotes.convert(it.snapshot).snapshot else it.snapshot,
+                it.appVersion, it.createdAt, it.files, manifest.schemaVersion)
+        }
+        validatePrepared(compatible)
+        return compatible
     }
 
-    fun validatePrepared(prepared: PreparedRestore) {
-        DataValidation.validateSnapshot(prepared.snapshot)
+    fun validatePrepared(prepared: PreparedRestore, sourceVersion: Int = 2) {
+        DataValidation.validateSnapshot(prepared.snapshot, sourceVersion)
         val expected = prepared.snapshot.attachments.map { it.relativePath }.toSet()
         if (prepared.files.keys != expected) throw DataProblem("备份附件缺失或包含清单之外的文件，当前资料未修改")
         prepared.snapshot.attachments.forEach { attachment ->

@@ -29,6 +29,7 @@ fun fieldLabel(key: String): String = mapOf(
     "followup" to "后续跟进", "date" to "截止日期", "time" to "截止时刻", "reminder" to "本地提醒",
     "priority" to "优先级", "completionNote" to "完成备注", "company" to "公司",
     "appName" to "应用显示名称", "occurredDate" to "发生日期", "occurredTime" to "发生时刻",
+    "legacyOccurredDate" to "旧填写的发生日期", "legacyOccurredTime" to "旧填写的发生时刻",
 ).getOrDefault(key, key)
 
 internal fun editorHeading(kind: Kind): String = when (kind) {

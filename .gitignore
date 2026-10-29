@@ -7,3 +7,6 @@ output/
 *.jks
 *.keystore
 keystore.properties
+__pycache__/
+*.pyc
+hs_err_pid*.log

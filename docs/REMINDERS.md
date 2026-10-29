@@ -1,41 +1,39 @@
-# 本地提醒与业务时间
+# V1.1 本地提醒与业务时间
 
-业务时区固定 `Asia/Shanghai`，日期输入 `yyyy-MM-dd`，时间输入24小时 `HH:mm`。不使用电脑或手机当前时区推断业务日。日期型待办截止到当日最后一毫秒；没有日期的待办不会逾期；指定时间的待办按该时刻计算。
+## 时间与分类
 
-待办提醒主动开启后：有时刻的按该时刻，只有日期的默认 **09:00**。活动提醒默认关闭，设置的提前分钟数从活动开始时间计算。改期只改变活动提醒，不更改独立筹备待办的日期。
+业务时区固定 `Asia/Shanghai`。TimeRules 集中解析严格日期 `uuuu-MM-dd`、24小时时刻 `HH:mm` 和组合时间，不支持 `09:30:45` 秒值。用户通过日期与时刻面板选择；非法旧输入会提示修正，不能沿用旧 timestamp 假称新字符串保存成功。
 
-`ReminderScheduler` 使用 `AlarmManager.setAndAllowWhileIdle` 普通非精确调度，不请求精确闹钟、不启动常驻服务、不依赖网络或 Google 服务。系统省电、厂商限制及调度批处理可能导致延后，不能承诺分钟级准点。
+沟通发生时间、创建时间和更新时间分开保存。历史补录按 occurredAt 排入时间线和日期导出；改正文、补对象、添附件或改跟进都不会把编辑时间当作发生时间。
 
-通知权限只由界面在用户开启提醒时申请。系统通知或此频道被关闭时不安排新闹钟；所有业务数据和首页跟进继续可用。用户重新授权后调用 `rebuild`。提醒内容和锁屏版本都不包括客户姓名、电话或照护信息，点击携带 `entryId` 打开对应待办/活动。
+未设日期的 TASK 单独列出，不会逾期。日期型 TASK 截止到业务日最后一毫秒；具体时刻 TASK 按该时刻到期。完成/取消状态优先于日期分组。
 
-去重和重建：
+ViewModel 的 clockNow 是可观察状态。前台恢复立即刷新；前台静置时通过 `TimeRules.nextRefreshAt` 找到下一条未完成任务的截止边界或北京时间午夜，安排一次刷新。资料变化会重新计算下一边界；后台停止这个界面计时，不用常驻服务或后台高频轮询维持列表。
 
-- PendingIntent 用稳定记录 ID 对应的 URI 标识；改期撤销旧计划，再装入新计划。
-- 每次触发从 Room 读取当前快照，对比计划时间、记录状态与权限；旧广播不能凭旧参数发通知。
-- 调度与投递状态在应用私有 SharedPreferences 持久保存，数据流重复发射不会重复排程，已投递的同一计划不会因重开/重启再次提醒。
-- 通知使用稳定 tag 和 OnlyAlertOnce；完成、取消、关闭提醒会移除已显示通知。
-- 开机、系统时间变化、时区变化、应用覆盖更新以及每次进程首次打开时重建有效计划。
-- 24小时内错过的未完成跟进可在重开后补提醒；过旧跟进留在工作台逾期列表。活动已经开始的旧提醒不补发。
-- Android **强制停止**会阻止系统启动该包；用户重新打开后恢复调度。它与按 Home/正常后台/系统回收进程不同，不能把强停状态当作后台提醒运行条件。
+## 用户明确开启的提醒
 
-主界面集成：`ReminderScheduler(context).rebuild(snapshot)`；通知授权回调后再调用；恢复备份提交后调用 `rebuild(snapshot, force=true)`。`MainActivity` 的初始 Intent 和 `onNewIntent` 均读取 `ReminderScheduler.EXTRA_ENTRY_ID`。
+正文自动保存不会创建跟进、申请通知权限或调度隐式提醒。用户主动提交 TASK 或显式开启提醒后，任务事实才参与调度。标题或正文修改使用 patch，独立修改的日期、提醒开关、状态和完成备注保持不变。
 
-清单组件：
+TASK 开启提醒后，有时刻则按该时刻；只设日期默认当天09:00。清空日期时同时清空具体时刻并关闭提醒。提醒关闭后，任务仍在工作台和待办列表可见。
 
-```xml
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-<receiver android:name=".reminders.ReminderReceiver" android:exported="false" />
-<receiver android:name=".reminders.ReminderBootReceiver" android:exported="false">
-    <intent-filter>
-        <action android:name="android.intent.action.BOOT_COMPLETED" />
-        <action android:name="android.intent.action.TIME_SET" />
-        <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-    </intent-filter>
-</receiver>
-```
+活动提醒默认关闭。筹备中且 start/end 都空是合法的“时间待定”活动，没有活动开始提醒；其筹备 TASK 可独立设日期。补齐合法起止时间并主动选择提前分钟数后才参与提醒。改回时间待定撤销原活动提醒；完成或取消同样撤销。活动改期不平移独立筹备任务的日期。
 
-代码和逻辑测试不等同于实际系统通知验证。`TimeRulesTest` 覆盖仅日期的跨午夜边界、未来分组、精确时刻、已完成/取消、09:00默认值、活动改期与独立待办、无效日期、设备时区变化、错过提醒恢复范围。系统调度日志标记 `WorkbookReminder`，记录计划与实际触发时间，避免记录客户内容。实际后台弹出/点击结果由根代理在统一验收表记录。
+设置页显示实际通知可用状态；已开启时保留系统通知设置入口，不重复显示允许通知按钮。Android权限、应用通知或频道关闭时不安排新提醒，业务数据照常保存。
 
-官方参考（2026-10-29 读取）：[普通闹钟](https://developer.android.com/develop/background-work/services/alarms)、[通知权限](https://developer.android.com/develop/ui/compose/notifications/notification-permission)。Android 12+ 普通非精确闹钟在无省电限制时仍可能在计划后一个小时内才触发，因此模拟器短观察窗口没有出现通知只能据实记为未观察到，不能改用精确调度或直接触发伪造通过。
+## 系统调度与限制
+
+ReminderScheduler 使用 `AlarmManager.setAndAllowWhileIdle` 普通非精确提醒，没有精确闹钟权限、常驻服务或网络请求。系统省电、厂商限制及批处理可能延后，不能承诺分钟级准点。实际设备触发时间应与计划时间分别记录，不得用直接调用 receiver 或改变调度实现伪造通过。
+
+PendingIntent 使用稳定记录 ID 对应的 URI。改期先撤销旧计划，再安装新计划；receiver 从 Room 重新读取当前状态、日期和权限，拒绝旧参数。锁屏显示通用提示，不包含客户姓名、电话或照护细节；点击打开对应待办或活动。
+
+计划与投递去重信息在私有 SharedPreferences 同步保存。相同计划重组不重复调度，已投递的同一计划不因重开再次提醒。完成、取消或关闭提醒会撤销计划并移除不再有效的已显示通知。
+
+开机、系统时间/时区变化、覆盖更新与进程首次打开时重建有效计划。24小时内错过的未完成跟进可在重开后补提醒，过旧任务留在逾期列表；活动开始后的旧提醒不补发。用户强制停止会阻止系统启动应用，必须重新打开后恢复调度；它与正常按Home切后台不同。
+
+## 恢复后的提醒
+
+恢复和回滚经过 `WorkbookViewModel.restoreData` 协调，取消在途编辑并切换数据会话。备份包含业务 TASK/活动字段，不迁移系统闹钟和已运行编辑器；完整资料替换后以当前有效记录强制重建提醒。旧正文 next* 值和旧草稿兼容迁移不会偷偷生成 TASK 或申请通知权限。
+
+清单使用 POST_NOTIFICATIONS、RECEIVE_BOOT_COMPLETED，以及非导出的 ReminderReceiver / ReminderBootReceiver。MainActivity 读取初始 Intent 与 onNewIntent 的 entryId，确保从通知定位实际记录。
+
+此文记录实现，不预先宣布本轮设备测试通过。T06/T07/T08/T12 的实际状态、权限允许/拒绝、改期和通知证据见 [ACCEPTANCE](ACCEPTANCE.md)。V1历史实测结果不能当作V1.1已经重跑的结果；朋友真实手机的电量策略和体验仍需单独验证。

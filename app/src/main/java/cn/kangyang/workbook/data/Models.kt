@@ -1,6 +1,7 @@
 package cn.kangyang.workbook.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
@@ -34,6 +35,17 @@ data class Draft(
     val entry: Entry,
     val revision: Long,
     val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0") val isNoteBuffer: Boolean = false,
+    val baseUpdatedAt: Long? = null,
+    @ColumnInfo(defaultValue = "''") val recoveryReason: String = "",
+)
+
+/** Continuous note sessions are separate from one-shot legacy draft submission seals. */
+@Entity(tableName = "note_sessions")
+data class NoteSession(
+    @PrimaryKey val entryId: String,
+    val sessionId: String,
+    val revision: Long = -1,
 )
 
 @Serializable

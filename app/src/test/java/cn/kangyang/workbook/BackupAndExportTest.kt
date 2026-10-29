@@ -33,7 +33,7 @@ class BackupAndExportTest {
 
     @Test fun backupRejectsFutureSchemaAbnormalPathsOrMissingAttachment() {
         val snapshot = fixture()
-        val future = BackupCodec.encode(BackupManifest(schemaVersion = 2, appVersion = "2", createdAt = 1, snapshot = snapshot), emptyMap(), password)
+        val future = BackupCodec.encode(BackupManifest(schemaVersion = 3, appVersion = "future", createdAt = 1, snapshot = snapshot), emptyMap(), password)
         assertThrows(DataProblem::class.java) { BackupCodec.decode(future, password) }
         val traversal = BackupCodec.encode(BackupManifest(appVersion = "1", createdAt = 1, snapshot = snapshot), mapOf("../outside" to byteArrayOf(1)), password)
         assertThrows(DataProblem::class.java) { BackupCodec.decode(traversal, password) }

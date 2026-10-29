@@ -50,6 +50,13 @@ object TimeRules {
         return if (today(deadline) == today(now)) "今日" else "未来"
     }
 
+    /** A foreground one-shot wakeup at the first observable due boundary or Shanghai midnight. */
+    fun nextRefreshAt(entries: List<Entry>, now: Long = TimeRules.now()): Long {
+        val midnight = today(now).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return entries.asSequence().filter { it.kind == Kind.TASK && it["status"] !in setOf("已完成", "已取消") }
+            .mapNotNull(::taskDue).map { it + 1 }.filter { it > now }.fold(midnight, ::minOf)
+    }
+
     /** Date-only tasks use the explicitly documented default 09:00 local reminder. */
     fun reminderAt(entry: Entry): Long? {
         if (entry.archived) return null
@@ -64,7 +71,7 @@ object TimeRules {
             }
             Kind.ACTIVITY -> {
                 val lead = entry.fields["remindMinutes"]?.toLongOrNull() ?: return null
-                if (lead !in 0..525_600) return null
+                if (lead !in 0..43_200) return null
                 val start = parseDateTime(entry.fields["start"].orEmpty()) ?: return null
                 start - lead * 60_000L
             }
