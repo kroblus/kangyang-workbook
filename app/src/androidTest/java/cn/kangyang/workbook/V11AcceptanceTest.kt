@@ -1130,7 +1130,9 @@ class V11AcceptanceTest {
         tag("entry_$id").assertIsDisplayed(); shot("final-saved-note-on-home"); hold()
         touch("entry_$id"); tag("note_detail_body").assertTextEquals(content)
         shot("final-body-first-detail"); hold()
-        touch("edit_entry"); touch("note_link")
+        touch("edit_entry")
+        waitFor { ui.activity.model.editor != null && tag("note_link").isDisplayed() }
+        touch("note_link")
         tag("object_search").performTextReplacement(org.title)
         tag("object_${org.id}").performScrollTo().assertIsDisplayed()
         shot("final-searchable-association-panel"); hold()

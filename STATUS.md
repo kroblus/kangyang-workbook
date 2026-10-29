@@ -1,22 +1,25 @@
 # 当前状态
 
-2026-10-29，唯一工程根 D:/Desktop/Codex/Workbook。
+2026-10-29 至 2026-10-30，工程根 `D:/Desktop/Codex/Workbook`。基线 `d5d671022d2c0ec6001d30cc882d60f67640923a`，本轮应用源码提交 `18df88549a4c8ed231cf99ba594d6d7631412402`。
 
-- IMPLEMENTATION = PASS（V1功能已实现，E01–E15列明场景验收完成）
-- APK_BUILD = PASS（个人版与QA，versionName 1.0.0 / versionCode 3，测试签名）
-- EXISTING_EMULATOR_E2E = PASS（现有API36模拟器，完整业务、真实提醒及六档dp/字号）
-- OFFLINE_AND_DRAFTS = PASS（断网、中文和图片草稿、普通进程结束及强停重开）
-- BACKUP_RESTORE = PASS（实际UI加密包恢复至独立空空间、附件比对、真实恢复进程中断）
-- DATA_PRESERVING_UPDATE = PASS（QA versionCode 1→2，同签名覆盖；没有schema升级）
-- OWNER_OR_FRIEND_REAL_DEVICE = NOT_RUN
-- GITHUB_REPOSITORY_AND_RELEASE = PASS（私有仓库源码已推送，v1.0.0试用版含APK、SHA256SUMS与实录视频；三个远端附件大小及SHA-256均核对一致）
+V1.1 正文优先体验重构、必要数据修复、实际构建/安装和 T01–T12 列明范围验收已完成。个人版与 QA 版均为 `1.1.0 / code5`，保持 V1 的测试签名。
 
-最终个人APK已安装、空数据启动、新建并强停重开；安装文件与交付文件SHA-256相同。14项JVM测试通过，lint为0 error/22 warning。最终QA业务3/3、数据安全3/3、小屏大字号6/6通过。真实个人版提醒计划14:36，实际14:36:43.672触发且点击正确待办，重开无重复。应用UID的crash buffer为空，系统本次启动后无ANR。失败及修复后复验日志均保留。
+| 项目 | 状态 |
+|---|---|
+| 一键开始正文、正式自动保存、详情/搜索找回 | PASS |
+| 独立TASK改期、完成备注、旧TASK草稿隔离 | PASS |
+| 旧沟通草稿迁移、V1备份、恢复/回滚会话隔离 | PASS |
+| 时间待定活动与统一绿色控件 | PASS |
+| JVM / 模拟器数据安全与提醒调度 | PASS，20项 / 14项 |
+| 320/360/430dp及横屏，标准/1.5倍字体 | PASS，最终APK8/8 |
+| 最终个人版 code3→5 覆盖升级、旧资料比对、新建/重开 | PASS |
+| 最终QA真实进程结束后重开与照片/时间保留 | PASS |
+| 截图 / 41.57秒实际操作录像 | 已生成并核对最终APK身份 |
+| GitHub v1.1.0 发布 | PENDING，正在上传 |
+| 姜宏或朋友真实手机试用 | NOT_RUN |
 
-现有AVD ShengliFlowApi36 / emulator-5554 / Android16 API36，初始1080×2400、420dpi、fontScale1.0。未清数据或卸载。绿色实际来源为养老项目 admin-web/src/evergreen/tokens.ts，且 main.tsx 确实导入。
+使用既有 `ShengliFlowApi36 / emulator-5554 / Android16 API36`。破坏性测试仅在QA；个人原两条正式资料、一份TASK草稿的所有V1字段逐项保留，Room1→2迁移成功。最终应用UID的crash日志为空，系统无本次启动后的ANR。lint为0 error、24 warning、1 hint；首次主机内存导致的构建中断、测试时序修正和真实横屏问题及复验均保留记录。
 
-详细结果、APK哈希、命令、限制见 docs/ACCEPTANCE.md；证据统一 output/verification，APK统一 output/apk。短录屏59.659秒。屏幕、密度、字体、网络已恢复，测试旋转锁已释放。朋友真实手机仍未测试。原养老小程序、Reader、Voice Memos未修改。
+显示已恢复1080×2400、420dpi、fontScale1.0、rotation free。APK和原始证据在 `output/apk` 与 `output/v1.1`，完整备份、数据库、导出资料和签名私钥不上传。
 
-仓库：https://github.com/kroblus/kangyang-workbook（私有）。
-
-版本：https://github.com/kroblus/kangyang-workbook/releases/tag/v1.0.0（已发布的预发布试用版，不是草稿）。
+[验收报告](docs/ACCEPTANCE.md) · [简短使用说明](docs/TRYOUT.md) · [真实截图](docs/screenshots-v1.1/README.md) · [源码仓库](https://github.com/kroblus/kangyang-workbook)
