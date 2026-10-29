@@ -92,4 +92,10 @@ V1前置脚本 `v11_preflight.py` / `v11_seed_legacy.py` 在已有证据或版�
 - 备份口令至少8字符且不可找回；完整恢复替换全部资料、保留一次逻辑回滚。界面偏好不在业务备份中；提醒依据恢复后业务资料重建。旧内容寻址附件暂不自动清理。
 - CSV不是XLSX，电话/编号导入表格时应选文本列。正文/敏感字段需主动选择包含并检查预览。没有云同步、远程AI或上传客户资料。
 
-GitHub发布状态以 [STATUS](../STATUS.md) 为准；发布内容为源码、文档、使用虚构验收资料的真实截图、个人APK与实录，不包含原始数据库、备份、CSV、签名私钥或本机配置。
+## GitHub交付
+
+[v1.1.0试用版本](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0) 已于北京时间2026-10-30 00:09发布，非草稿、标记为预发布；标签为 `70b6bacecce902ba7f939bf31fe23589a8c1928b`，其应用源码与 `18df88549a4c8ed231cf99ba594d6d7631412402` 一致。源码与文档已推送到 [现有仓库](https://github.com/kroblus/kangyang-workbook)。标签之后仅补写发布核验结果。
+
+远端三个附件均为uploaded，个人APK 20,849,929 bytes、录像4,425,068 bytes、SHA256SUMS清单186 bytes，GitHub返回的每个asset digest与本地SHA-256逐一一致。[远端核验原始结果](../output/v1.1/github-release-verification.json)。
+
+发布内容为源码、文档、使用虚构验收资料的真实截图、个人APK与实录，不包含原始数据库、备份、CSV、签名私钥或本机配置。当前状态见 [STATUS](../STATUS.md)。
