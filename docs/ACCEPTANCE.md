@@ -136,7 +136,7 @@ adb -s emulator-5554 shell am instrument -w -e class cn.kangyang.workbook.Device
 
 实际录屏：[workbook-business-flow.mp4](../output/verification/workbook-business-flow.mp4)，720×1600，59.659秒，17,303,633字节，来自安装后的真实业务测试；[文件校验](../output/verification/video-verification.json)。录制命令为 `adb -s emulator-5554 shell screenrecord --size 720x1600 --bit-rate 3000000 --time-limit 60 /sdcard/workbook-business-flow.mp4`，随后pull到本工程。原始截图与视频未重绘。
 
-GitHub仓库与Release：发布后补入。
+GitHub已完成发布：[私有源码仓库](https://github.com/kroblus/kangyang-workbook) · [v1.0.0试用版](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.0.0)。Release为已发布的prerelease，非draft；附件含个人APK、SHA256SUMS与59.659秒实录视频。三个远端附件的大小和GitHub计算的SHA-256均与本地文件完全一致，见[远端核验](../output/verification/github-asset-verification.json)。签名私钥、本机配置、完整业务导出/备份及原始日志未上传。发布标签的应用源码与main交付源码相同，后续提交只补发布链接和状态。
 
 ## 当前限制与尚未验证的范围
 
@@ -147,7 +147,7 @@ GitHub仓库与Release：发布后补入。
 - 本人资料、业务标签、所有业务实体/关联/草稿/附件包含在完整备份中。DataStore 仅保存界面提示等非业务偏好，**不在备份中**；提醒调度按恢复后的有效业务数据重建，不恢复旧系统通知实例。
 - CSV 不具有单元格类型，电话号码/编号在电子表格软件导入时应选文本列，避免前导零丢失。CSV 不是 XLSX。摘要和 CSV 默认不含自由正文及结构化敏感字段，主动包含后仍需使用者检查预览。
 - 没有账号、云同步、远程分析、广告或 AI 请求。系统自动云备份和设备迁移配置均显式排除业务目录；不据此宣称可控制所有厂商自有迁移工具。
-- 本轮为测试签名本地 APK。GitHub 仓库/Release 发布虽已获用户后续授权，其完成结果在本文编写时仍为 **PENDING**；未上传应用商店，未给真实联系人发送文件。
+- 本轮为测试签名试用APK。已按用户后续明确授权发布私有GitHub仓库与v1.0.0预发布版本，替代原始提示词中的“不推送远端”限制；未上传应用商店，未给真实联系人发送文件。
 
 ## 总体状态检查点
 
@@ -160,5 +160,5 @@ GitHub仓库与Release：发布后补入。
 | BACKUP_RESTORE | PASS（实际 UI 包恢复至独立空空间、完整性核对和真实进程中断） |
 | DATA_PRESERVING_UPDATE | PASS（QA code 1→2；无 schema 升级，不声称迁移测试） |
 | FINAL_PERSONAL_APK_SMOKE | PASS（安装、空数据、新建、强停重开；另加真实通知点击） |
-| GITHUB_REPOSITORY_AND_RELEASE | PENDING |
+| GITHUB_REPOSITORY_AND_RELEASE | PASS（私有仓库、v1.0.0预发布、3个附件远端大小/SHA核对） |
 | OWNER_OR_FRIEND_REAL_DEVICE | NOT_RUN |

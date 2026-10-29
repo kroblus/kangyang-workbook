@@ -2,6 +2,8 @@
 
 给养老顾问使用的单人离线 Android 工作记录工具。单位拜访、客户沟通、活动安排、后续跟进放在同一个工作簿里，无须注册。
 
+[下载 v1.0.0 试用版 APK 与演示视频](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.0.0) · 包名 `cn.kangyang.workbook` · versionCode `3` · 测试签名。
+
 支持独立沟通时间线、多位联系人与服务对象、自动持久草稿、照片与文档附件、非精确本地提醒、全文及日期搜索、CSV/文本导出、口令加密备份和完整恢复。首次安装为空业务数据。
 
 <img src="docs/screenshots/personal-home.png" alt="个人版首次打开" width="300">
