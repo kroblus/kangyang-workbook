@@ -22,8 +22,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,14 +56,13 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     val focusManager=LocalFocusManager.current
     val density=LocalDensity.current
     val ime=WindowInsets.ime
-    var body by rememberSaveable(session.draftId,stateSaver=TextFieldValue.Saver){mutableStateOf(TextFieldValue(e["content"],TextRange(e["content"].length)))}
+    val body=requireNotNull(session.noteBody)
+    LaunchedEffect(body) { snapshotFlow {body.text.toString()}.collect {vm.syncNoteBody()} }
     var panel by rememberSaveable(session.draftId){mutableStateOf("")}
     var pendingPanel by rememberSaveable(session.draftId){mutableStateOf("")}
     var selectedTaskId by rememberSaveable(session.draftId){mutableStateOf<String?>(null)}
     var focusedOnce by rememberSaveable(session.draftId){mutableStateOf(false)}
     LaunchedEffect(session.draftId) { if(!focusedOnce) {focus.requestFocus();keyboard?.show();focusedOnce=true} }
-    // External restoration can replace the text, but normal commits never replace the selection.
-    LaunchedEffect(e["content"]) {if(body.text!=e["content"]) body=TextFieldValue(e["content"],TextRange(e["content"].length))}
     val linked=s.find(e.parentId)
     val tasks=remember(s.entries,e.id) { s.sourcedFrom(e.id).filter{it.kind==Kind.TASK} }
     val files=s.attachmentsFor(e.id)
@@ -107,14 +104,10 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
         }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=20.dp).testTag("note_scroll")) {
-            BasicTextField(value=body,onValueChange={value->
-                val textChanged=body.text!=value.text
-                body=value
-                if(textChanged)vm.change(e.copy(fields=e.fields+("content" to value.text)))
-            },
+            BasicTextField(state=body,
                 enabled=!session.saving,textStyle=MaterialTheme.typography.bodyLarge.copy(color=Ink,fontSize=17.sp,lineHeight=28.sp),
                 cursorBrush=SolidColor(Green),modifier=Modifier.fillMaxWidth().heightIn(min=if(compact)40.dp else 170.dp).padding(top=if(compact)0.dp else 16.dp,bottom=if(compact)0.dp else 20.dp).focusRequester(focus).testTag("note_body"),
-                decorationBox={inner->Box {if(body.text.isEmpty()) Text("写下刚才的重要内容…",color=Muted,style=MaterialTheme.typography.bodyLarge.copy(fontSize=17.sp,lineHeight=28.sp));inner()}})
+                decorator={inner->Box {if(body.text.isEmpty()) Text("写下刚才的重要内容…",color=Muted,style=MaterialTheme.typography.bodyLarge.copy(fontSize=17.sp,lineHeight=28.sp));inner()}})
             files.forEach {AttachmentRow(it,onAttachment,onRemove)}
             session.attachmentStatus?.let {Text(it,color=if(it.contains("未导入")) MaterialTheme.colorScheme.error else Muted,style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("note_attachment_status"))}
             TextButton(onClick={show("date")},modifier=Modifier.testTag("note_date")){Icon(Icons.Outlined.Schedule,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text(occurrenceLabel(e,vm.clockNow),color=Muted)}

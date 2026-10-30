@@ -4,7 +4,11 @@
 
 开发协作先看 [AGENTS.md](AGENTS.md)：个人开发、快速迭代，按本次改动选择验证范围。
 
-**V1.1 / 1.1.0 / versionCode 5** · [下载试用APK与41.57秒实录](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0) · [验收报告](docs/ACCEPTANCE.md)
+**轻量试用 / 1.1.0-perf / versionCode 5** · [下载优化APK](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-perf.1) · [性能实测与限制](docs/PERFORMANCE.md)
+
+轻量包使用 R8 与资源压缩，桌面名称“康养工作簿·轻量试用”，包名 `cn.kangyang.workbook.qa.perf`，与个人版并列安装。已实际检查输入、光标、跟进面板、长列表、搜索返回和大照片；使用者本次试用反馈为“现在不卡顿了，其他都没啥问题”。模拟器单次帧耗时采样及真机测量范围见性能说明。
+
+**V1.1 个人版历史交付 / 1.1.0 / versionCode 5** · [个人APK与41.57秒实录](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0) · [历史验收报告](docs/ACCEPTANCE.md)
 
 <img src="docs/screenshots-v1.1/home.png" alt="V1.1实际模拟器未滚动首页" width="280"> <img src="docs/screenshots-v1.1/editor-keyboard.png" alt="点一次记一笔直接聚焦正文" width="280">
 

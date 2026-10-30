@@ -1,5 +1,13 @@
 # 当前状态
 
+2026-10-30 轻量试用发布：[`v1.1.0-perf.1`](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-perf.1)。版本 `1.1.0-perf / code5`，包名 `cn.kangyang.workbook.qa.perf`，采用已实际安装验证的 R8 非 Debug APK。
+
+本次修复快速输入丢字和光标插入错位，350 ms／1500 ms 自动保存时效保持不变。相关三个设备功能回归通过；模拟器以 743 条虚构资料及 6000×4000 大照片完成输入、面板、列表、搜索、完成跟进和图片预览。使用者补充反馈：轻量版目前使用不卡顿，其他暂未发现问题；反馈未附设备型号，不列作低端真机专项测量。
+
+APK `kangyang-workbook-1.1.0-perf-v5.apk`，2,293,307 bytes，SHA-256 `07425d5d8abb1c27c6e025aa90bda87ad2d741997fb6df03e7c15f210c70b114`。发布附件含同一 APK 及校验清单。[本次性能数据与剩余尖峰](docs/PERFORMANCE.md)。
+
+## V1.1 个人版历史状态
+
 2026-10-29 至 2026-10-30，工程根 `D:/Desktop/Codex/Workbook`。基线 `d5d671022d2c0ec6001d30cc882d60f67640923a`，本轮应用源码提交 `18df88549a4c8ed231cf99ba594d6d7631412402`。
 
 V1.1 正文优先体验重构、必要数据修复、实际构建/安装和 T01–T12 列明范围验收已完成。个人版与 QA 版均为 `1.1.0 / code5`，保持 V1 的测试签名。

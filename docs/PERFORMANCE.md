@@ -38,7 +38,34 @@ Debug 适合功能调试，但有额外运行开销；性能判断用上述优�
 
 ## 本轮验证
 
-本轮已实际完成 `assembleQaPerformance`、`testQaDebugUnitTest` 和 `compileQaDebugAndroidTestKotlin`。21 项 JVM 测试全部通过，包括快照索引与备份序列化兼容性回归。优化包完成 R8 压缩和打包。当前构建会话没有连接 Android 设备，因此新增 Room/提醒设备回归、模拟器操作和低端真机帧耗时仍待相应设备执行；本文件不宣称已经测得帧率或性能提升百分比。
+2026-10-30 在已有 `emulator-5554`（Android 16 / API 36、x86_64、1080×2400、420 dpi）实际运行。基线是 `af08d810df7178b084be2dcdc548c46c9692a78b`，前后均使用 R8/资源压缩的 `cn.kangyang.workbook.qa.perf`，动画设置保持 1.0。原目录未提交修改留在原处，本次修改在独立的 `Workbook-perf` 工作目录中。
+
+通过应用的恢复界面准备了相同的虚构测试资料：200 个单位、60 个客户、402 条沟通、80 条跟进和一张 6000×4000 / 13,104,644 字节的 JPEG，共 743 条记录。只恢复独立性能空间，没有清除个人资料。两轮都用 `measure-performance.ps1` 的 Begin/End 包住实际按键、点击与滑动；各轮开始前重新恢复同一份资料，冷启动单独记录。操作覆盖正文输入/移动光标、跟进面板、展开设置并保存、200 项单位列表连续滚动、搜索详情返回、完成跟进和大照片预览。
+
+| 设备报告的整段统计 | 基线优化包 | 本次优化包 |
+| --- | ---: | ---: |
+| 总帧数 | 951 | 1010 |
+| 卡顿帧 | 170（17.88%） | 158（15.64%） |
+| P50 / P90 / P95 / P99 | 19 / 34 / 40 / 109 ms | 19 / 32 / 42 / 93 ms |
+| 操作后 PSS | 54,574 KiB | 49,645 KiB |
+| 操作后 RSS | 163,608 KiB | 158,928 KiB |
+| 单独冷启动 `am start -W` TotalTime | 756 ms | 767 ms |
+
+这是各一次操作采样，输入修复后实际处理的字符/光标更新也有差异，不能据此认定整体性能稳定提升。P95 和冷启动没有改善；内存是关闭预览后的快照，不是峰值。原始设备报告保留在 `output/perf-20261030/before` 和 `after`，汇总在 `output/perf-20261030/comparison.json`。没有根据录屏帧率计算应用帧率。
+
+本次直接修复的是快速输入时丢字符、光标插入位置被旧值覆盖的问题。正文改用当前编辑会话持有的 `TextFieldState`；只在文本变化时同步保存模型，移动光标不增加保存版本，保存和退出前读取最新输入。350 ms 停顿保存、1500 ms 持续输入调度、事务及旧版本防覆盖保持不变。优化包实际操作中输入与插入内容完整、焦点与键盘保留；跟进设置展开时保存按钮在键盘上方可见；成功提示未推动待办页标题，详情返回保留搜索和滚动位置，大照片已实际打开。
+
+仍慢的位置主要是跟进面板/键盘切换，以及照片预览窗口首次出现。本次分段统计中，跟进面板段 55/213 个卡顿帧、近似 P95 73 ms；大照片段 14/67、近似 P95 61 ms；长列表滚动段为 21/350、近似 P95 30 ms。分段分位由相邻累计直方图相减得到，包含页面和键盘过渡，不能当作某个函数的执行时间。
+
+另对跟进面板打开、输入、设置展开/收起和关闭抓了一次 `atrace`，不混入上述比较。应用主线程的 `Choreographer#doFrame` 区间最高 128.9 ms，`Recomposer:recompose` 最高 48.1 ms、`AndroidOwner:onMeasure` 最高 35.3 ms，渲染线程 `DrawFrames` 最高 35.2 ms。说明这段仍有组合、测量和窗口渲染的尖峰；这些是包含子区间的墙钟时间，不相加，也不能直接归因成某个业务函数的纯 CPU 耗时。原始跟踪和区间汇总位于 `output/perf-20261030/panel-trace.txt`、`panel-trace-summary.json`。本轮没有在缺少进一步归因时大改面板结构。
+
+已构建 `assembleQaPerformance`、`assembleQaDebug` 和 `assembleQaDebugAndroidTest`。相关功能回归仅在 QA Debug 跑了三项：`rapidNoteTypingAndCursorMovementKeepLatestText`、`immediateBackAndExistingBodyCanBeCleared`、`visibleSaveFailureRetryAndSlowRevisionState`，均通过；这些结果不用于性能判断。本轮没有重跑全量历史验收或 JVM 套件。低端真机没有接入，尚未实测，不从模拟器结果推断真机表现。
+
+## 轻量试用发布
+
+发布标签为 [`v1.1.0-perf.1`](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-perf.1)，为轻量试用预发布版。附件 `kangyang-workbook-1.1.0-perf-v5.apk` 使用本页实际验证的同一份 APK，版本名 `1.1.0-perf`、versionCode 5、包名 `cn.kangyang.workbook.qa.perf`。APK 为 2,293,307 bytes，SHA-256 为 `07425d5d8abb1c27c6e025aa90bda87ad2d741997fb6df03e7c15f210c70b114`。
+
+发布前使用者补充反馈：“这个轻量版本现在不卡顿了，其他都没啥问题。”这是本次试用反馈，设备型号未附；与上面的模拟器帧耗时采样分开记录，不据此宣称低端真机专项测量通过。
 
 ## 参考
 

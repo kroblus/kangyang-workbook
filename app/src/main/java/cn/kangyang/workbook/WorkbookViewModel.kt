@@ -2,7 +2,9 @@ package cn.kangyang.workbook
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.TextRange
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -26,6 +28,7 @@ data class EditorSession(
     val existed:Boolean=false, val occurrenceChosen:Boolean=false,
     val attachmentStatus:String?=null,
     val original:Entry?=null,
+    val noteBody:TextFieldState?=if(entry.kind==Kind.INTERACTION) TextFieldState(entry["content"],TextRange(entry["content"].length)) else null,
 )
 
 fun isStaleTaskDraft(draft:Draft,current:Entry?):Boolean = draft.entry.kind==Kind.TASK &&
@@ -133,15 +136,22 @@ class WorkbookViewModel(application:Application, private val savedState:SavedSta
     fun change(entry:Entry) {
         val current=editor ?: return
         if(current.saving || transitioning) return
-        val chose=current.occurrenceChosen || current.entry.occurredAt!=entry.occurredAt
-        val firstContent=entry.kind==Kind.INTERACTION && !chose && entry["content"].isNotBlank()
-        val changed=if(firstContent) entry.copy(occurredAt=TimeRules.now()) else entry
+        // Read the live input buffer rather than replaying text from a previous frame.
+        val latest=current.noteBody?.let {entry.copy(fields=entry.fields+("content" to it.text.toString()))} ?: entry
+        val chose=current.occurrenceChosen || current.entry.occurredAt!=latest.occurredAt
+        val firstContent=latest.kind==Kind.INTERACTION && !chose && latest["content"].isNotBlank()
+        val changed=if(firstContent) latest.copy(occurredAt=TimeRules.now()) else latest
         editor=current.copy(entry=changed,revision=current.revision+1,occurrenceChosen=chose||firstContent,
             status=if(entry.kind==Kind.INTERACTION) "正在保存…" else "正在保存草稿…")
         debounce?.cancel()
         debounce=viewModelScope.launch {delay(350);persistLatest()}
         // Continuous input must not postpone every commit indefinitely.
         if(deadline?.isActive!=true) deadline=viewModelScope.launch {delay(1500);persistLatest();deadline=null}
+    }
+    internal fun syncNoteBody() {
+        val current=editor ?: return
+        val text=current.noteBody?.text?.toString() ?: return
+        if(text!=current.entry["content"]) change(current.entry)
     }
     private suspend fun persist(session:EditorSession):Boolean = writes.withLock {
         if(session.generation!=repository.generation || transitioning) return@withLock false
@@ -168,7 +178,7 @@ class WorkbookViewModel(application:Application, private val savedState:SavedSta
             false
         }
     }
-    private suspend fun persistLatest():Boolean { val current=editor ?: return true;return persist(current) }
+    private suspend fun persistLatest():Boolean { syncNoteBody();val current=editor ?: return true;return persist(current) }
     fun flushDraft() {
         if(transitioning) return
         debounce?.cancel();deadline?.cancel();deadline=null
@@ -186,6 +196,7 @@ class WorkbookViewModel(application:Application, private val savedState:SavedSta
         return latest
     }
     private fun leaveEditor(then:()->Unit) {
+        syncNoteBody()
         val current=editor ?: run{then();return}
         if(current.saving) return
         editor=current.copy(saving=true)

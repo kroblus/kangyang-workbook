@@ -204,6 +204,40 @@ class V11AcceptanceTest {
         File(evidence, "t01-t02.txt").writeText("PASS physical single touch; focused body and real IME; Chinese body committed; same ID in home/search; empty session creates no record; no automatic TASK\nnoteId=$id")
     }
 
+    @Test fun rapidNoteTypingAndCursorMovementKeepLatestText() {
+        qa(); val id = newNote()
+        fun typeKeys(value: String) {
+            val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+            ui.mainClock.autoAdvance = false
+            val input = kotlin.concurrent.thread {
+                try { device.executeShellCommand("input text ${value.replace(" ", "%s")}") }
+                catch (e: Throwable) { failure.set(e) }
+            }
+            try {
+                // Render between actual key events, as the standalone app does.
+                while (input.isAlive) { ui.mainClock.advanceTimeByFrame(); SystemClock.sleep(8) }
+                failure.get()?.let { throw it }
+            } finally { input.join(); ui.mainClock.autoAdvance = true }
+            ui.waitForIdle()
+        }
+        val initial = "Perf rapid typing 0123456789 keeps every character"
+        typeKeys(initial); saved(id, initial)
+        tag("note_body").assertTextEquals(initial).assertIsFocused()
+        val revision = ui.activity.model.editor!!.revision
+        tag("note_body").performTextInputSelection(androidx.compose.ui.text.TextRange(5))
+        ui.waitForIdle()
+        assertEquals("Cursor movement must not schedule another save", revision, ui.activity.model.editor!!.revision)
+        typeKeys("INSERT")
+        val expected = initial.take(5) + "INSERT" + initial.drop(5)
+        saved(id, expected)
+        tag("note_body").assertTextEquals(expected).assertIsFocused()
+        var keyboardShown = false
+        ui.runOnUiThread { keyboardShown = ui.activity.window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true }
+        assertTrue("Typing and autosave must keep IME visible", keyboardShown)
+        touch("note_back"); waitFor { ui.activity.model.editor == null }
+        assertEquals(expected, snap().find(id)!!["content"])
+    }
+
     @Test fun appendObjectYesterdayAndIndependentFollowup() {
         qa()
         val id = newNote()
