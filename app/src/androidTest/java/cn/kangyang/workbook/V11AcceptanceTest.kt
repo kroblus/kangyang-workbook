@@ -1069,6 +1069,34 @@ class V11AcceptanceTest {
         } finally { release.complete(Unit); repo.beforeAttachmentCommit = null }
     }
 
+    @Test fun dossierPrimaryTextRemainsVisibleAfterSaving() {
+        qa(); val suffix = System.currentTimeMillis().toString().takeLast(6)
+        listOf(
+            Triple(Kind.ORGANIZATION, "notes", "这家单位希望先了解居家照护合作。"),
+            Triple(Kind.CUSTOMER, "needs", "家属希望先安排一次上门沟通。"),
+        ).forEach { (kind, field, content) ->
+            home(); touch(if (kind == Kind.ORGANIZATION) "nav_orgs" else "nav_customers")
+            text(if (kind == Kind.ORGANIZATION) "新增单位" else "新增客户")
+            genericField("title", "示例·正文可见${kind.name}$suffix")
+            genericField(field, content)
+            val id = ui.activity.model.editor!!.entry.id
+            val detail = if (kind == Kind.ORGANIZATION) "address" else "budget"
+            val value = if (kind == Kind.ORGANIZATION) "示例社区一号" else "5000"
+            genericField(detail, value)
+            genericSave()
+
+            // The primary text must be readable without expanding more fields.
+            ui.onNodeWithText("详细资料与更多操作").assertIsDisplayed()
+            ui.onNodeWithText(content).assertIsDisplayed()
+            assertEquals(content, snap().find(id)!![field])
+            assertEquals(value, snap().find(id)!![detail])
+            touch("edit_entry")
+            tag("field_$field").assertTextEquals(content)
+            genericSave()
+            ui.onNodeWithText(content).assertIsDisplayed()
+        }
+    }
+
     @Test fun dossiersRolesArchiveAndChineseCsvThroughUi() {
         qa(); val suffix = System.currentTimeMillis().toString().takeLast(6)
         home(); touch("nav_orgs"); text("新增单位"); genericField("title", "示例·V11回归单位$suffix")

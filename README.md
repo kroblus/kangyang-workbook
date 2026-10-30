@@ -4,7 +4,9 @@
 
 开发协作先看 [AGENTS.md](AGENTS.md)：个人开发、快速迭代，按本次改动选择验证范围。
 
-本轮在已反馈流畅的轻量版上继续调整笔记体验：内容优先、单项补充、轻微页面过渡，原绿色主题保持不变。[手记体验说明与相关操作验证](docs/NOTEBOOK-UX.md)。可用 `:app:assembleQaWarm` 构建并列安装的“康养工作簿·手记试用”（`cn.kangyang.workbook.qa.warm`）；本轮实际验证范围以该说明为准。
+**手记试用 / 1.1.0-warm / versionCode 5** · [下载优化 APK 与操作录屏](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-warm.1) · [手记体验与实际验证](docs/NOTEBOOK-UX.md)
+
+在已反馈流畅的轻量版上继续调整笔记体验：内容优先、单项补充、轻微页面过渡，原绿色主题保持不变。单位正文和客户需求保存后直接显示在档案首页。使用者已反馈使用正常、页面切换与动画流畅，并确认发布。本次附件沿用实际安装验证的同一份优化 APK，包名 `cn.kangyang.workbook.qa.warm`，与原轻量包并列安装；可用 `:app:assembleQaWarm` 构建。
 
 **轻量试用 / 1.1.0-perf / versionCode 5** · [下载优化APK](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-perf.1) · [性能实测与限制](docs/PERFORMANCE.md)
 
@@ -27,7 +29,7 @@
 - [工程环境与主题](docs/TECHNICAL.md)、[数据契约](docs/CONTRACT.md)
 - [V1 历史验收](docs/ACCEPTANCE-V1.md)（与本轮 V1.1 结果分开）
 
-应用不需要注册，不自行联网、上传资料或调用 AI。支持 Android 8.0 及以上；本轮实际设备范围为已有 Android 16 / API 36 模拟器，朋友真实手机尚未测试。测试签名 APK 更新时应直接覆盖，保持相同包名和签名，不要先卸载。
+应用不需要注册，不自行联网、上传资料或调用 AI。支持 Android 8.0 及以上；开发侧本轮实测设备为已有 Android 16 / API 36 模拟器，使用者反馈与具体测试范围见手记体验说明。测试签名 APK 更新时应直接覆盖，保持相同包名和签名，不要先卸载。
 
 ## 构建
 

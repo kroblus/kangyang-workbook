@@ -1,5 +1,13 @@
 # 当前状态
 
+2026-10-30 手记试用发布：[`v1.1.0-warm.1`](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-warm.1)。版本 `1.1.0-warm / code5`，包名 `cn.kangyang.workbook.qa.warm`，沿用本机既有签名，使用已实际安装验证的同一份 R8 非 Debug APK。
+
+笔记、跟进及资料页以正文与单项补充为主，保持绿色主题和既有自动保存；修正单位正文、客户需求保存后只在详细资料中可见的问题。已有 Android 16 模拟器完成相关页面走查，快速输入／光标、单项确认／取消和档案正文可见性 3 个设备回归通过。使用者随后反馈使用正常、页面切换与动画流畅，并明确要求发布。
+
+APK `kangyang-workbook-1.1.0-warm-v5.apk`，2,309,691 bytes，SHA-256 `0c8cc25925525fca9512abd0258a9674dae8397b8527076d53c8f655ccf8144f`。发布附件包含同一 APK、简短操作录屏与 `SHA256SUMS`。本轮未运行全量历史验收、低端真机专项测试或新的帧耗时采样；使用者反馈不换算为帧率。[手记体验与验证范围](docs/NOTEBOOK-UX.md)。
+
+## 轻量试用历史状态
+
 2026-10-30 轻量试用发布：[`v1.1.0-perf.1`](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-perf.1)。版本 `1.1.0-perf / code5`，包名 `cn.kangyang.workbook.qa.perf`，采用已实际安装验证的 R8 非 Debug APK。
 
 本次修复快速输入丢字和光标插入错位，350 ms／1500 ms 自动保存时效保持不变。相关三个设备功能回归通过；模拟器以 743 条虚构资料及 6000×4000 大照片完成输入、面板、列表、搜索、完成跟进和图片预览。使用者补充反馈：轻量版目前使用不卡顿，其他暂未发现问题；反馈未附设备型号，不列作低端真机专项测量。

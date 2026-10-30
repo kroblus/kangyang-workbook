@@ -428,6 +428,8 @@ fun searchEntries(s:Snapshot,query:String,includeArchived:Boolean):List<Entry> {
             if(e.archived) item(key="archived",contentType="label") { Badge("已归档 · 历史保留") }
             s.find(e.parentId)?.let{parent->item(key="parent",contentType="action") { TextButton(onClick={vm.navigate("detail:${parent.id}")}){Text("关联${kindLabel(parent.kind)}：${parent.title}")} } }
             if(dossier) {
+                val body=if(e.kind==Kind.ORGANIZATION)e["notes"] else e["needs"]
+                if(body.isNotBlank()) item(key="dossier-body",contentType="body") { Text(body,style=MaterialTheme.typography.bodyLarge) }
                 item(key="dossier-meta",contentType="label") { Text(listOf(e["type"],e["area"],e["stage"]).filter{it.isNotBlank()}.joinToString(" · "),color=Muted) }
                 item(key="record",contentType="action") { PrimaryAction("记一次沟通",{vm.create(Kind.INTERACTION,e)},Modifier.fillMaxWidth().testTag("add_interaction")) }
                 item(key="tasks-heading",contentType="heading") { SectionTitle("后续跟进","添加跟进"){vm.create(Kind.TASK,e)} }
