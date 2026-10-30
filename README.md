@@ -12,7 +12,7 @@
 
 ## 开始使用
 
-- [给姜宏的简短试用说明](docs/TRYOUT.md)
+- [简短试用说明](docs/TRYOUT.md)
 - [T01–T12 验收、APK身份与限制](docs/ACCEPTANCE.md)
 - [相对 V1 基线的变更与迁移决策](docs/V1.1-DESIGN.md)
 - [功能说明](docs/PRODUCT.md)、[数据与备份](docs/DATA.md)、[本地提醒](docs/REMINDERS.md)
