@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,6 +50,24 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     return "$date ${d.format(occurrenceTimeFormat)}"
 }
 
+private val noteContextKeys = listOf("participants", "mode", "purpose")
+private val notePointKeys = listOf("needs", "conclusion", "promises", "terms", "obstacles", "certainty")
+private fun noteFieldTitle(key:String) = when(key) {
+    "title"->"给这段记录起个标题"; "tags"->"加几个标签"
+    "participants"->"一起聊的人"; "mode"->"沟通方式"; "purpose"->"这次想聊的事"
+    "needs"->"对方的需要"; "conclusion"->"这次的结论"; "promises"->"彼此的约定"
+    "terms"->"谈到的条件"; "obstacles"->"还要确认的事"; "certainty"->"确认情况"
+    else->fieldLabel(key)
+}
+private fun noteFieldIcon(key:String) = when(key) {
+    "title"->Icons.Outlined.Title; "tags"->Icons.Outlined.Label
+    "participants"->Icons.Outlined.People; "mode"->Icons.Outlined.Forum
+    "purpose"->Icons.Outlined.ChatBubbleOutline; "needs"->Icons.Outlined.FavoriteBorder
+    "promises"->Icons.Outlined.Handshake; "conclusion"->Icons.Outlined.Notes
+    else->Icons.Outlined.BookmarkBorder
+}
+private fun shortNoteValue(value:String) = value.lineSequence().firstOrNull{it.isNotBlank()}?.trim()?.take(48).orEmpty()
+
 @Composable fun NoteEditorScreen(vm:WorkbookViewModel,session:EditorSession,s:Snapshot,onPhoto:()->Unit,onFile:()->Unit,onAttachment:(Attachment)->Unit,onRemove:(Attachment)->Unit,onNotifications:()->Unit) {
     val e=session.entry
     val focus=remember(session.draftId){FocusRequester()}
@@ -60,6 +79,7 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     LaunchedEffect(body) { snapshotFlow {body.text.toString()}.collect {vm.syncNoteBody()} }
     var panel by rememberSaveable(session.draftId){mutableStateOf("")}
     var pendingPanel by rememberSaveable(session.draftId){mutableStateOf("")}
+    var afterPanel by rememberSaveable(session.draftId){mutableStateOf("")}
     var selectedTaskId by rememberSaveable(session.draftId){mutableStateOf<String?>(null)}
     var focusedOnce by rememberSaveable(session.draftId){mutableStateOf(false)}
     LaunchedEffect(session.draftId) { if(!focusedOnce) {focus.requestFocus();keyboard?.show();focusedOnce=true} }
@@ -68,6 +88,7 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     val files=s.attachmentsFor(e.id)
     fun finishEditing(action:()->Unit){focusManager.clearFocus(force=true);keyboard?.hide();action()}
     fun show(value:String){focusManager.clearFocus(force=true);keyboard?.hide();pendingPanel=value}
+    fun finishPanel(){panel=afterPanel;afterPanel=""}
     LaunchedEffect(pendingPanel) {
         val requested=pendingPanel
         if(requested.isNotBlank()) {
@@ -104,14 +125,28 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
         }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=20.dp).testTag("note_scroll")) {
+            if(e.title.isNotBlank()) Text(e.title,style=MaterialTheme.typography.headlineMedium,
+                modifier=Modifier.fillMaxWidth().padding(top=16.dp,bottom=4.dp).clickable{show("field:title")})
             BasicTextField(state=body,
                 enabled=!session.saving,textStyle=MaterialTheme.typography.bodyLarge.copy(color=Ink,fontSize=17.sp,lineHeight=28.sp),
                 cursorBrush=SolidColor(Green),modifier=Modifier.fillMaxWidth().heightIn(min=if(compact)40.dp else 170.dp).padding(top=if(compact)0.dp else 16.dp,bottom=if(compact)0.dp else 20.dp).focusRequester(focus).testTag("note_body"),
-                decorator={inner->Box {if(body.text.isEmpty()) Text("写下刚才的重要内容…",color=Muted,style=MaterialTheme.typography.bodyLarge.copy(fontSize=17.sp,lineHeight=28.sp));inner()}})
+                decorator={inner->Box {if(body.text.isEmpty()) Text("这次聊到了什么？\n先记下重要的几句话…",color=Muted,style=MaterialTheme.typography.bodyLarge.copy(fontSize=17.sp,lineHeight=28.sp));inner()}})
             files.forEach {AttachmentRow(it,onAttachment,onRemove)}
             session.attachmentStatus?.let {Text(it,color=if(it.contains("未导入")) MaterialTheme.colorScheme.error else Muted,style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("note_attachment_status"))}
-            TextButton(onClick={show("date")},modifier=Modifier.testTag("note_date")){Icon(Icons.Outlined.Schedule,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text(occurrenceLabel(e,vm.clockNow),color=Muted)}
-            if(linked!=null) TextButton(onClick={show("link")}){Icon(kindIcon(linked.kind),null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text(linked.title)}
+            MetadataShelf {
+                MetadataChip("时间",occurrenceLabel(e,vm.clockNow),Icons.Outlined.Schedule,{show("date")},Modifier.testTag("note_date"))
+                if(linked!=null) MetadataChip("对象",linked.title,kindIcon(linked.kind),{show("link")})
+                if(e["tags"].isNotBlank()) MetadataChip("标签",e["tags"].replace('\n','、'),Icons.Outlined.Label,{show("field:tags")})
+                listOf("participants","mode").filter{e[it].isNotBlank()}.forEach { key->
+                    MetadataChip(noteFieldTitle(key),shortNoteValue(e[key]),noteFieldIcon(key),{show("field:$key")})
+                }
+            }
+            (listOf("purpose")+notePointKeys).filter{e[it].isNotBlank()}.forEach { key->
+                Column(Modifier.fillMaxWidth().clickable{show("field:$key")}.padding(vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Text(noteFieldTitle(key),style=MaterialTheme.typography.labelMedium,color=Muted)
+                    Text(e[key],style=MaterialTheme.typography.bodyLarge)
+                }
+            }
             tasks.forEach{task->TextButton(onClick={selectedTaskId=task.id;show("followup")}){Icon(Icons.Outlined.CheckCircleOutline,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("${task.title} · ${task["date"].ifBlank{"未设日期"}}")}}
             Spacer(Modifier.height(8.dp))
         }
@@ -121,7 +156,7 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
             TextButton(onClick={show("attachment")},modifier=Modifier.testTag("note_attach")){Icon(Icons.Outlined.AttachFile,null,Modifier.size(20.dp));Text("附件")}
             TextButton(onClick={show("link")},modifier=Modifier.testTag("note_link")){Icon(Icons.Outlined.Link,null,Modifier.size(20.dp));Text("关联")}
             TextButton(onClick={selectedTaskId=tasks.firstOrNull()?.id;show("followup")},modifier=Modifier.testTag("note_followup")){Icon(Icons.Outlined.AddTask,null,Modifier.size(20.dp));Text(if(tasks.isEmpty())"加跟进" else "跟进")}
-            TextButton(onClick={show("more")},modifier=Modifier.testTag("note_more")){Icon(Icons.Outlined.MoreHoriz,null,Modifier.size(20.dp));Text("更多")}
+            TextButton(onClick={show("more")},modifier=Modifier.testTag("note_more")){Icon(Icons.Outlined.MoreHoriz,null,Modifier.size(20.dp));Text("补充")}
         }
         }
         }
@@ -139,17 +174,36 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
         }
         "date"->OccurrencePanel(e,vm::change,{panel=""})
         "followup"->FollowUpPanel(vm,s,tasks.find{it.id==selectedTaskId} ?: tasks.firstOrNull(),e,{panel=""},onNotifications)
-        "more"->AppBottomSheet("更多信息",{panel=""}) {
-            AppTextField(e.title,{vm.change(e.copy(title=it))},"标题（选填）",Modifier.fillMaxWidth().testTag("note_title"))
-            listOf("participants","mode","purpose","needs","terms","promises","obstacles","conclusion","certainty","tags").forEach {key->
-                AppTextField(e[key],{vm.change(e.copy(fields=e.fields+(key to it)))},fieldLabel(key),Modifier.fillMaxWidth().testTag("note_$key"))
-            }
+        "more"->AppBottomSheet("补充信息",::finishPanel) {close->
+            fun next(value:String){afterPanel=value;close()}
+            Text("想到哪一项，就补哪一项。",color=Muted,style=MaterialTheme.typography.bodyMedium)
+            DetailAction(if(e.title.isBlank())"加个标题" else "标题",e.title.ifBlank{"也可以直接用正文开头"},Icons.Outlined.Title,{next("field:title")},Modifier.testTag("note_edit_title"))
+            DetailAction("标签",e["tags"].replace('\n','、').ifBlank{"方便以后找回这段记录"},Icons.Outlined.Label,{next("field:tags")},Modifier.testTag("note_edit_tags"))
+            DetailAction("这次沟通",noteContextKeys.map{shortNoteValue(e[it])}.filter{it.isNotBlank()}.joinToString(" · ").ifBlank{"一起聊的人、沟通方式"},Icons.Outlined.Forum,{next("context")},Modifier.testTag("note_context"))
+            DetailAction("单独记下的要点",notePointKeys.count{e[it].isNotBlank()}.let{if(it==0)"需要、约定或还要确认的事" else "已记下 $it 项"},Icons.Outlined.Notes,{next("points")},Modifier.testTag("note_points"))
             if(e["nextStep"].isNotBlank()) {
                 Text("旧记录的下一步建议",style=MaterialTheme.typography.titleMedium)
                 Text(e["nextStep"])
                 Text("仅作原记录保留。跟进事项以当前待办为准。",color=Muted)
-                SecondaryAction(if(tasks.isEmpty())"确认并添加跟进" else "查看当前跟进",{panel="followup"},Modifier.fillMaxWidth())
+                SecondaryAction(if(tasks.isEmpty())"确认并添加跟进" else "查看当前跟进",{next("followup")},Modifier.fillMaxWidth())
             }
+        }
+        "context","points"->AppBottomSheet(if(panel=="context")"这次沟通" else "单独记下的要点",::finishPanel) {close->
+            fun next(value:String){afterPanel=value;close()}
+            TextButton(onClick={next("more")}) { Icon(Icons.Outlined.ArrowBack,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("返回补充信息") }
+            MetadataShelf {
+                (if(panel=="context")noteContextKeys else notePointKeys).forEach { key->
+                    MetadataChip(noteFieldTitle(key),shortNoteValue(e[key]),noteFieldIcon(key),{next("field:$key")},Modifier.testTag("note_edit_$key"))
+                }
+            }
+        }
+        else->if(panel.startsWith("field:")) {
+            val key=panel.removePrefix("field:")
+            TextDetailSheet(noteFieldTitle(key),if(key=="title")e.title else e[key],
+                onConfirm={value->if(key=="title")vm.change(e.copy(title=value)) else vm.change(e.copy(fields=e.fields+(key to value)))},
+                onDismiss={panel=""},placeholder=if(key=="tags")"例如：居家护理、下周联系" else "记下你想保留的内容…",
+                singleLine=key in setOf("title","participants","mode","certainty"),
+                testTag="note_$key",supportingText=if(key=="tags")"用逗号或换行分开。" else null)
         }
     }
 }
@@ -168,13 +222,16 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     var date by rememberSaveable(e.id){mutableStateOf(e["occurredDate"].ifBlank{e["date"].ifBlank{d.toLocalDate().toString()}})}
     var time by rememberSaveable(e.id){mutableStateOf(e["occurredTime"].ifBlank{e["time"].ifBlank{d.format(DateTimeFormatter.ofPattern("HH:mm"))}})}
     var error by remember{mutableStateOf<String?>(null)}
-    AppBottomSheet("发生时间",onDismiss) { close->
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            SecondaryAction("今天",{date=TimeRules.today().toString()},Modifier.testTag("occur_today"))
-            SecondaryAction("昨天",{date=TimeRules.today().minusDays(1).toString()},Modifier.testTag("occur_yesterday"))
+    var picker by rememberSaveable{mutableStateOf("")}
+    AppBottomSheet("这件事发生在",onDismiss) { close->
+        MetadataShelf {
+            AppFilterChip("今天",date==TimeRules.today().toString(),{date=TimeRules.today().toString()},Modifier.testTag("occur_today"))
+            AppFilterChip("昨天",date==TimeRules.today().minusDays(1).toString(),{date=TimeRules.today().minusDays(1).toString()},Modifier.testTag("occur_yesterday"))
         }
-        DateField("发生日期",date,{date=it},Modifier.fillMaxWidth().testTag("occur_date"),allowClear=false)
-        TimeField("具体时刻",time,{time=it},Modifier.fillMaxWidth().testTag("occur_time"),allowClear=false)
+        MetadataShelf {
+            MetadataChip("日期",friendlyDate(date),Icons.Outlined.CalendarToday,{picker="date"},Modifier.testTag("occur_date"))
+            MetadataChip("时刻",time,Icons.Outlined.Schedule,{picker="time"},Modifier.testTag("occur_time"))
+        }
         if(TimeRules.parseDateTime("$date $time")==null) Text("原输入无效，请重新选择日期和时刻；正文仍保留。",color=MaterialTheme.colorScheme.error)
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         PrimaryAction("确定时间",{
@@ -185,6 +242,8 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
             }
         },Modifier.fillMaxWidth().testTag("occur_save"))
     }
+    if(picker=="date") AppDatePicker(date,{date=it},{picker=""},"哪一天",allowClear=false)
+    if(picker=="time") AppTimePicker(time,{time=it},{picker=""},"具体时刻",allowClear=false)
 }
 
 @Composable fun FollowUpPanel(vm:WorkbookViewModel,s:Snapshot,original:Entry?,source:Entry?,onDismiss:()->Unit,onNotifications:()->Unit) {
@@ -197,8 +256,12 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
     var busy by remember{mutableStateOf(false)}
     var submitted by remember{mutableStateOf(false)}
     var error by remember{mutableStateOf<String?>(null)}
-    var more by rememberSaveable{mutableStateOf(false)}
+    var detail by rememberSaveable{mutableStateOf("")}
+    var pendingDetail by rememberSaveable{mutableStateOf("")}
     fun field(key:String,value:String){task=task.copy(fields=task.fields+(key to value))}
+    fun chooseDate(value:String) {
+        task=task.copy(fields=task.fields+if(value.isBlank())mapOf("date" to "","time" to "","reminder" to "false") else mapOf("date" to value))
+    }
     fun submit(close:()->Unit) {
         if(!busy&&!submitted) {busy=true;vm.action {
             try {vm.submitFollowUp(task,baseline){submitted=true;busy=false;close();vm.message="跟进已保存"}}
@@ -206,29 +269,62 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
             finally{busy=false}
         }}
     }
-    AppBottomSheet(if(original==null)"加一个跟进" else "修改跟进",{if(!busy)onDismiss()},dismissEnabled=!busy,
+    AppBottomSheet(if(original==null)"下一步想做什么" else "这件事的下一步",{if(!busy)onDismiss()},dismissEnabled=!busy,
         bottomBar={close->
             error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             PrimaryAction(if(busy)"正在保存…" else if(submitted)"已保存" else if(original==null)"加入跟进" else "保存跟进",{submit(close)},
                 Modifier.fillMaxWidth().testTag("followup_submit"),enabled=!busy&&!submitted)
         }) {
-        AppTextField(task.title,{task=task.copy(title=it)},"要做的事情",Modifier.fillMaxWidth().testTag("followup_title"))
+        // A modal sheet owns a different focus tree from the page beneath it.
+        // Wait for this sheet's keyboard to leave before opening its detail picker.
+        val sheetFocus=LocalFocusManager.current
+        val sheetKeyboard=LocalSoftwareKeyboardController.current
+        val sheetDensity=LocalDensity.current
+        val sheetIme=WindowInsets.ime
+        fun showDetail(value:String){sheetFocus.clearFocus(force=true);sheetKeyboard?.hide();pendingDetail=value}
+        LaunchedEffect(pendingDetail) {
+            val requested=pendingDetail
+            if(requested.isNotBlank()) {
+                snapshotFlow {sheetIme.getBottom(sheetDensity)}.first {it==0}
+                detail=requested
+                pendingDetail=""
+            }
+        }
+        BasicTextField(value=task.title,onValueChange={task=task.copy(title=it)},enabled=!busy&&!submitted,
+            textStyle=MaterialTheme.typography.titleMedium.copy(color=Ink,fontWeight=FontWeight.Medium),cursorBrush=SolidColor(Green),
+            modifier=Modifier.fillMaxWidth().heightIn(min=72.dp).padding(vertical=10.dp).testTag("followup_title"),
+            decorationBox={inner->Box{if(task.title.isEmpty())Text("比如，明天发一份服务介绍…",color=Muted,style=MaterialTheme.typography.titleMedium);inner()}})
         if(original==null && source?.get("nextStep")?.isNotBlank()==true) TextButton(onClick={task=task.copy(title=source["nextStep"])}){Text("采用旧记录的下一步建议")}
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            SecondaryAction("今天",{field("date",TimeRules.today().toString())},Modifier.testTag("followup_today"))
-            SecondaryAction("明天",{field("date",TimeRules.today().plusDays(1).toString())},Modifier.testTag("followup_tomorrow"))
-            TextButton(onClick={task=task.copy(fields=task.fields+mapOf("date" to "","time" to "","reminder" to "false"))}){Text("暂不设日期")}
+        MetadataShelf {
+            AppFilterChip("今天",task["date"]==TimeRules.today().toString(),{chooseDate(TimeRules.today().toString())},Modifier.testTag("followup_today"))
+            AppFilterChip("明天",task["date"]==TimeRules.today().plusDays(1).toString(),{chooseDate(TimeRules.today().plusDays(1).toString())},Modifier.testTag("followup_tomorrow"))
+            MetadataChip("选日期",task["date"].takeIf{it.isNotBlank()}?.let(::friendlyDate).orEmpty(),Icons.Outlined.CalendarToday,{showDetail("date")},Modifier.testTag("followup_date"))
         }
-        DateField("跟进日期",task["date"],{if(it.isBlank())task=task.copy(fields=task.fields+mapOf("date" to "","time" to "","reminder" to "false")) else field("date",it)},Modifier.fillMaxWidth().testTag("followup_date"))
-        TextButton(onClick={more=!more}){Text(if(more)"收起时刻与其他设置" else "时刻、优先级与备注")}
-        ExpandingSection(more) {
-            TimeField("具体时刻（选填）",task["time"],{field("time",it)},Modifier.fillMaxWidth())
-            FlowRow {TaskPriorities.forEach{p->FilterChip(selected=task["priority"]==p,onClick={field("priority",p)},label={Text(p)})}}
-            AppTextField(task["completionNote"],{field("completionNote",it)},if(task["status"]=="已完成")"完成备注" else "备注（选填）",Modifier.fillMaxWidth().testTag("followup_note"))
+        MetadataShelf {
+            if(task["date"].isNotBlank()) MetadataChip("时刻",task["time"].ifBlank{"待定"},Icons.Outlined.Schedule,{showDetail("time")},Modifier.testTag("followup_time"))
+            MetadataChip("优先级",task["priority"].ifBlank{"普通"},Icons.Outlined.Flag,{showDetail("priority")},Modifier.testTag("followup_priority"))
+            MetadataChip("提醒",if(task["reminder"]=="true")"已开启" else "未开启",Icons.Outlined.NotificationsNone,{
+                if(task["reminder"]=="true")field("reminder","false")
+                else if(task["date"].isBlank())showDetail("reminder-date")
+                else {field("reminder","true");onNotifications()}
+            },Modifier.testTag("followup_reminder"))
         }
-        Row(verticalAlignment=Alignment.CenterVertically) {Switch(task["reminder"]=="true",{v->field("reminder",v.toString());if(v)onNotifications()},modifier=Modifier.testTag("followup_reminder"));Spacer(Modifier.width(8.dp));Text("开启提醒")}
-        Text(if(task["reminder"]=="true"&&task["time"].isBlank())"只设日期时在当天 09:00 提醒，系统可能延后。" else "提醒可选，正文保存不会改变跟进。",color=Muted,style=MaterialTheme.typography.bodySmall)
+        DetailAction(if(task["status"]=="已完成")"完成后记下的" else "补一句",task["completionNote"].ifBlank{"需要时再写一点备注"},Icons.Outlined.Notes,{showDetail("note")},Modifier.testTag("followup_edit_note"))
+        if(task["reminder"]=="true") Text(if(task["time"].isBlank())"当天 09:00 提醒，系统可能延后。" else "按选定的时刻提醒，系统可能延后。",color=Muted,style=MaterialTheme.typography.bodySmall)
+        if(task["date"].isBlank())Text("时间还没想好，也可以先记下。",color=Muted,style=MaterialTheme.typography.bodySmall)
         if(original?.get("status") in listOf("已完成","已取消")) Text("保留${original?.get("status")}状态",color=Muted)
+    }
+    when(detail) {
+        "date","reminder-date"->AppDatePicker(task["date"],{value->
+            chooseDate(value)
+            if(detail=="reminder-date"&&value.isNotBlank()){field("reminder","true");onNotifications()}
+        },{detail=""},if(detail=="reminder-date")"哪天提醒你" else "什么时候再联系",allowClear=detail=="date")
+        "time"->AppTimePicker(task["time"],{field("time",it)},{detail=""},"具体时刻")
+        "priority"->AppBottomSheet("这件事有多紧要",{detail=""}) {close->
+            MetadataShelf {TaskPriorities.forEach{value->AppFilterChip(value,task["priority"]==value,{field("priority",value);close()})}}
+        }
+        "note"->TextDetailSheet(if(task["status"]=="已完成")"完成后记下的" else "补一句",task["completionNote"],
+            {field("completionNote",it)},{detail=""},placeholder="记下做这件事时要留意的内容…",testTag="followup_note")
     }
 }
 

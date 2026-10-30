@@ -62,7 +62,7 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
         topBar={if(root) TopAppBar(title={Text(if(route=="home")"今天" else vm.profile["appName"].ifBlank{"康养工作簿"},style=MaterialTheme.typography.titleLarge)},
             actions={IconButton(onClick={vm.navigate("search")},modifier=Modifier.testTag("search_all")){Icon(Icons.Outlined.Search,"搜索全部")};IconButton(onClick={vm.navigate("settings")},modifier=Modifier.testTag("settings")){Icon(Icons.Outlined.AccountCircle,"本人资料与设置")}},colors=TopAppBarDefaults.topAppBarColors(containerColor=Canvas))},
         bottomBar={if(root) NavigationBar(containerColor=MaterialTheme.colorScheme.surface,tonalElevation=0.dp){
-            listOf(Triple("home","工作台",Icons.Outlined.Dashboard),Triple("orgs","单位",Icons.Outlined.Business),Triple("customers","客户",Icons.Outlined.People),Triple("activities","活动",Icons.Outlined.EventNote)).forEach{(dest,label,icon)->
+            listOf(Triple("home","手记",Icons.Outlined.EditNote),Triple("orgs","单位",Icons.Outlined.Business),Triple("customers","客户",Icons.Outlined.People),Triple("activities","活动",Icons.Outlined.EventNote)).forEach{(dest,label,icon)->
                 NavigationBarItem(selected=route==dest,onClick={vm.navigate(dest,true)},icon={Icon(icon,null)},label={Text(label)},modifier=Modifier.testTag("nav_$dest"))
             }
         }}) {padding->
@@ -93,10 +93,14 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
                             route in listOf("backup","restore")->BackupScreen(vm,s,restoring=route=="restore")
                         }
                     }
-                    // Retain only browsing pages, never a completed or replaced editing session.
-                    if(route in setOf("home","orgs","customers","activities","tasks","drafts","search")) {
-                        browseState.SaveableStateProvider(route) { page() }
-                    } else page()
+                    // The animation key never includes live text, save status or database changes.
+                    // Retain browsing state without keeping an outgoing editor alive for animation.
+                    val pageKey=if(route=="editor") "$route:${vm.editor?.draftId}" else route
+                    LightPageTransition(pageKey,Modifier.fillMaxSize()) {
+                        if(route in setOf("home","orgs","customers","activities","tasks","drafts","search")) {
+                            browseState.SaveableStateProvider(route) { page() }
+                        } else page()
+                    }
                 }
                 if(vm.transitioning) Surface(color=Canvas.copy(alpha=.96f),modifier=Modifier.fillMaxSize()) {Column(Modifier.fillMaxSize(),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){CircularProgressIndicator();Text("正在切换资料，请稍候",Modifier.padding(16.dp))}}
             }
@@ -119,8 +123,8 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
 @Composable fun Badge(text:String){if(text.isNotBlank())Surface(color=Mint,shape=AppShapes.badge){Text(text,Modifier.padding(horizontal=8.dp,vertical=4.dp),color=Brand,style=MaterialTheme.typography.labelMedium)}}
 @Composable fun EntryCard(entry:Entry,snapshot:Snapshot,onClick:()->Unit) {
     if(entry.kind==Kind.INTERACTION){RecordRow(entry,snapshot,onClick);return}
-    Surface(onClick=onClick,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth().testTag("entry_${entry.id}")) {
-        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Surface(onClick=onClick,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,modifier=Modifier.fillMaxWidth().testTag("entry_${entry.id}")) {
+        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(entry.title,style=MaterialTheme.typography.titleMedium)
             val subtitle=when(entry.kind){
                 Kind.ORGANIZATION->listOf(entry["type"],entry["area"],entry["stage"]).filter{it.isNotBlank()}.joinToString(" · ")
@@ -148,8 +152,8 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
     }
 }
 @Composable fun RecordRow(e:Entry,s:Snapshot,onClick:()->Unit) {
-    Surface(onClick=onClick,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth().testTag("entry_${e.id}")) {
-        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Surface(onClick=onClick,shape=AppShapes.card,color=MaterialTheme.colorScheme.surface,modifier=Modifier.fillMaxWidth().testTag("entry_${e.id}")) {
+        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(noteTitle(e,s),style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
             val body=if(e.title.isBlank())e["content"].substringAfter('\n',"") else e["content"]
             if(body.isNotBlank())Text(body,maxLines=3,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyMedium)
@@ -184,17 +188,26 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
     val activities=remember(s.entries) { s.entriesOf(Kind.ACTIVITY).filter{it["status"] !in listOf("已完成","已取消")}.sortedBy{TimeRules.parseDateTime(it["start"])?:Long.MAX_VALUE}.take(2) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp).testTag("home_scroll"),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text(TimeRules.today(now).format(homeDateFormat),color=Muted,style=MaterialTheme.typography.bodyMedium)
-        PrimaryAction("记一笔",{vm.create(Kind.INTERACTION)},Modifier.fillMaxWidth().testTag("quick_record"))
+        Surface(onClick={vm.create(Kind.INTERACTION)},shape=AppShapes.card,color=Mint,
+            modifier=Modifier.fillMaxWidth().heightIn(min=84.dp).testTag("quick_record")) {
+            Row(Modifier.padding(18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                Icon(Icons.Outlined.EditNote,null,Modifier.size(28.dp),tint=Green)
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                    Text("记一笔",style=MaterialTheme.typography.titleMedium,color=Brand)
+                    Text("随手记下进展与想法",style=MaterialTheme.typography.bodySmall,color=Muted)
+                }
+                Icon(Icons.Outlined.ArrowForward,null,Modifier.size(20.dp),tint=Green)
+            }
+        }
         Row(verticalAlignment=Alignment.CenterVertically) {Text("需要跟进",style=MaterialTheme.typography.titleMedium,modifier=Modifier.weight(1f));TextButton(onClick={vm.navigate("tasks")},modifier=Modifier.testTag("tasks_all")){Text("全部待办")}}
-        if(tasks.isEmpty())Text("今天暂无待办，随时记下新进展。",color=Muted,style=MaterialTheme.typography.bodyMedium)
+        if(tasks.isEmpty())Text("今天没有待跟进的事，按自己的节奏来。",color=Muted,style=MaterialTheme.typography.bodyMedium)
         tasks.forEach{FollowUpRow(it,s,now,{vm.navigate("detail:${it.id}")},{vm.taskStatus(it,"已完成")},{vm.edit(it)})}
-        SectionTitle("最近编辑","查找历史"){vm.navigate("search")}
-        if(visits.isEmpty())Text("从“记一笔”开始，只写一句也会保存。",color=Muted)
+        SectionTitle("最近手记","查找历史"){vm.navigate("search")}
+        if(visits.isEmpty())Text("从刚才的一次沟通开始，写一句也可以。",color=Muted)
         visits.forEach{RecordRow(it,s){vm.navigate("detail:${it.id}")}}
-        if(visits.isNotEmpty())Text("卡片时间为事情发生时间",style=MaterialTheme.typography.bodySmall,color=Muted)
-        if(drafts.isNotEmpty()){SectionTitle("待整理的填写","查看 ${drafts.size} 份"){vm.navigate("drafts")};drafts.take(2).forEach{DraftRow(vm,it,s)}}
+        if(drafts.isNotEmpty()){SectionTitle("留待整理","查看 ${drafts.size} 份"){vm.navigate("drafts")};drafts.take(2).forEach{DraftRow(vm,it,s)}}
         if(activities.isNotEmpty()){SectionTitle("活动安排","全部活动"){vm.navigate("activities",true)};activities.forEach{EntryCard(it,s){vm.navigate("detail:${it.id}")}}}
-        Text(if(BuildConfig.FLAVOR=="qa")"验收空间 · 虚构资料" else "仅保存在本机 · 可离线使用",color=Muted,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(vertical=16.dp))
+        Text(if(BuildConfig.FLAVOR=="qa")"试用空间 · 仅保存在本机" else "仅保存在本机 · 可离线使用",color=Muted,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(vertical=16.dp))
     }
 }
 @Composable private fun DraftRow(vm:WorkbookViewModel,d:Draft,s:Snapshot) {
@@ -237,12 +250,20 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
 }
 @Composable fun ChoiceFilter(label:String,choices:List<String>,value:String,onValue:(String)->Unit) {
     var open by remember{mutableStateOf(false)}
-    SecondaryAction(if(value.isBlank())label else value,{open=true},Modifier.testTag("filter_$label"))
-    if(open)AppBottomSheet(label,{open=false}){close->(listOf("全部")+choices).distinct().forEach{choice->TextButton(onClick={onValue(if(choice=="全部")"" else choice);close()},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text(choice)}}}
+    MetadataChip(label,value,Icons.Outlined.FilterList,{open=true},Modifier.testTag("filter_$label"))
+    if(open)AppBottomSheet(label,{open=false}){close->
+        MetadataShelf {
+            (listOf("全部")+choices).distinct().forEach{choice->
+                AppFilterChip(choice,if(choice=="全部")value.isBlank() else value==choice,
+                    {onValue(if(choice=="全部")"" else choice);close()})
+            }
+        }
+    }
 }
 @Composable private fun EntryList(vm:WorkbookViewModel,s:Snapshot,kind:Kind) {
     var query by rememberSaveable(kind){mutableStateOf("")};var type by rememberSaveable(kind){mutableStateOf("")};var stage by rememberSaveable(kind){mutableStateOf("")}
     var date by rememberSaveable(kind){mutableStateOf("")};var archived by rememberSaveable(kind){mutableStateOf(false)};var filters by remember{mutableStateOf(false)}
+    var datePicker by remember{mutableStateOf(false)}
     val matches=remember(s.entries,s.attachments,query,archived,kind,type,stage,date) {
         val candidates=if(query.isBlank()) s.entriesOf(kind).filter{archived||!it.archived} else searchEntries(s,query,archived).filter{it.kind==kind}
         candidates.filter{(type.isBlank()||it["type"]==type||it["tags"].contains(type))&&(stage.isBlank()||it["stage"]==stage||it["status"]==stage)&&(date.isBlank()||it["start"].startsWith(date))}
@@ -270,12 +291,16 @@ fun kindIcon(kind:Kind):ImageVector=when(kind) {
     if(filters)AppBottomSheet("筛选${kindLabel(kind)}",{filters=false}) { close->
         val types=remember(s.entries,kind) { s.entriesOf(kind).map{it["type"]}.filter{it.isNotBlank()}.distinct() }
         val stages=remember(s.entries,kind) { s.entriesOf(kind).map{it[if(kind==Kind.ACTIVITY)"status" else "stage"]}.filter{it.isNotBlank()}.distinct() }
-        ChoiceFilter(if(kind==Kind.CUSTOMER)"需求标签" else "类型",if(kind==Kind.CUSTOMER)vm.tags else types,type,{type=it})
-        ChoiceFilter("阶段",stages,stage,{stage=it})
-        if(kind==Kind.ACTIVITY)DateField("活动日期",date,{date=it},Modifier.fillMaxWidth().testTag("activity_date_filter"))
-        else Row(verticalAlignment=Alignment.CenterVertically){Checkbox(archived,{archived=it});Text("包含已归档")}
+        MetadataShelf {
+            ChoiceFilter(if(kind==Kind.CUSTOMER)"需求标签" else "类型",if(kind==Kind.CUSTOMER)vm.tags else types,type,{type=it})
+            ChoiceFilter("阶段",stages,stage,{stage=it})
+            if(kind==Kind.ACTIVITY)MetadataChip("活动日期",date.takeIf{it.isNotBlank()}?.let(::friendlyDate).orEmpty(),
+                Icons.Outlined.CalendarMonth,{datePicker=true},Modifier.testTag("activity_date_filter"))
+        }
+        if(kind!=Kind.ACTIVITY)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(archived,{archived=it});Text("包含已归档")}
         PrimaryAction("查看结果",close,Modifier.fillMaxWidth())
     }
+    if(datePicker)AppDatePicker(date,{date=it},{datePicker=false},"活动日期")
 }
 fun searchEntries(s:Snapshot,query:String,includeArchived:Boolean):List<Entry> {
     val q=query.trim()
@@ -290,6 +315,7 @@ fun searchEntries(s:Snapshot,query:String,includeArchived:Boolean):List<Entry> {
     var from by rememberSaveable{mutableStateOf("")};var to by rememberSaveable{mutableStateOf("")};var tag by rememberSaveable{mutableStateOf("")}
     var objectId by rememberSaveable{mutableStateOf<String?>(null)};var objectPicker by remember{mutableStateOf(false)};var filters by remember{mutableStateOf(false)}
     var type by rememberSaveable{mutableStateOf("")}
+    var datePicker by remember{mutableStateOf<String?>(null)}
     val valid=from.isBlank()||to.isBlank()||from<=to
     val results=remember(s.entries,s.attachments,query,archived,from,to,tag,objectId,type,valid) {
         if(!valid) emptyList() else searchEntries(s,query,archived).filter{e->
@@ -307,6 +333,17 @@ fun searchEntries(s:Snapshot,query:String,includeArchived:Boolean):List<Entry> {
     Column(Modifier.fillMaxSize()){BackTitle("查找历史",vm::back,actions={TextButton(onClick={filters=true},modifier=Modifier.testTag("search_filters")){Text("筛选")}})
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("search_scroll"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             item(key="search",contentType="search") { AppTextField(query,{query=it},"搜索正文、名称、电话或附件名",Modifier.fillMaxWidth().testTag("global_search")) }
+            if(from.isNotBlank()||to.isNotBlank()||objectId!=null||type.isNotBlank()||tag.isNotBlank()||archived) {
+                item(key="active-filters",contentType="filters") {
+                    MetadataShelf {
+                        if(from.isNotBlank()||to.isNotBlank())MetadataChip("日期范围",listOf(from.ifBlank{"不限"},to.ifBlank{"不限"}).joinToString(" 至 "),Icons.Outlined.CalendarMonth,{filters=true})
+                        s.find(objectId)?.let{MetadataChip("关联对象",it.title,Icons.Outlined.PersonOutline,{filters=true})}
+                        if(type.isNotBlank())MetadataChip("业务类型",type,Icons.Outlined.Notes,{filters=true})
+                        if(tag.isNotBlank())MetadataChip("业务标签",tag,Icons.Outlined.Label,{filters=true})
+                        if(archived)MetadataChip("归档", "包含已归档",Icons.Outlined.Inventory2,{filters=true})
+                    }
+                }
+            }
             if(!valid) item(key="range-error",contentType="label") { Text("结束日期不能早于开始日期",color=MaterialTheme.colorScheme.error) }
             if(query.isBlank()) item(key="recent",contentType="label") { Text("最近记录",color=Muted) }
             groups.forEach { (kind,group)->
@@ -322,12 +359,22 @@ fun searchEntries(s:Snapshot,query:String,includeArchived:Boolean):List<Entry> {
         }
     }
     if(filters)AppBottomSheet("筛选范围",{filters=false}) { close->
-        DateField("发生日期从",from,{from=it},Modifier.fillMaxWidth());DateField("至",to,{to=it},Modifier.fillMaxWidth())
-        SecondaryAction(s.find(objectId)?.title ?: "全部对象",{objectPicker=true},Modifier.fillMaxWidth())
-        ChoiceFilter("业务类型",listOf("沟通记录","单位","客户","活动","待办"),type,{type=it});ChoiceFilter("业务标签",vm.tags,tag,{tag=it})
+        Text("按需要选一两项，就能缩小范围。",style=MaterialTheme.typography.bodyMedium,color=Muted)
+        MetadataShelf {
+            MetadataChip("发生日期从",from.takeIf{it.isNotBlank()}?.let(::friendlyDate).orEmpty(),Icons.Outlined.CalendarMonth,{datePicker="from"},Modifier.testTag("search_date_from"))
+            MetadataChip("至",to.takeIf{it.isNotBlank()}?.let(::friendlyDate).orEmpty(),Icons.Outlined.CalendarMonth,{datePicker="to"},Modifier.testTag("search_date_to"))
+            MetadataChip("全部对象",s.find(objectId)?.title.orEmpty(),Icons.Outlined.PersonOutline,{objectPicker=true},Modifier.testTag("search_object_filter"))
+            ChoiceFilter("业务类型",listOf("沟通记录","单位","客户","活动","待办"),type,{type=it})
+            ChoiceFilter("业务标签",vm.tags,tag,{tag=it})
+        }
         Row(verticalAlignment=Alignment.CenterVertically){Checkbox(archived,{archived=it});Text("包含已归档")}
+        if(!valid)Text("结束日期不能早于开始日期",color=MaterialTheme.colorScheme.error)
         PrimaryAction("查看结果",close,Modifier.fillMaxWidth())
+        if(from.isNotBlank()||to.isNotBlank()||objectId!=null||type.isNotBlank()||tag.isNotBlank()||archived) {
+            TextButton(onClick={from="";to="";objectId=null;type="";tag="";archived=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text("清除筛选")}
+        }
     }
+    datePicker?.let{part->AppDatePicker(if(part=="from")from else to,{if(part=="from")from=it else to=it},{datePicker=null},if(part=="from")"发生日期从" else "至")}
     if(objectPicker) {
         val objects=remember(s.entries) { s.entriesOf(Kind.ORGANIZATION)+s.entriesOf(Kind.CUSTOMER) }
         ObjectPickerPanel(objects,objectId,{objectId=it},{objectPicker=false},title="筛选对象",clearLabel="全部对象",contacts=s.entriesOf(Kind.CONTACT))

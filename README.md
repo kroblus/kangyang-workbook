@@ -4,6 +4,8 @@
 
 开发协作先看 [AGENTS.md](AGENTS.md)：个人开发、快速迭代，按本次改动选择验证范围。
 
+本轮在已反馈流畅的轻量版上继续调整笔记体验：内容优先、单项补充、轻微页面过渡，原绿色主题保持不变。[手记体验说明与相关操作验证](docs/NOTEBOOK-UX.md)。可用 `:app:assembleQaWarm` 构建并列安装的“康养工作簿·手记试用”（`cn.kangyang.workbook.qa.warm`）；本轮实际验证范围以该说明为准。
+
 **轻量试用 / 1.1.0-perf / versionCode 5** · [下载优化APK](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0-perf.1) · [性能实测与限制](docs/PERFORMANCE.md)
 
 轻量包使用 R8 与资源压缩，桌面名称“康养工作簿·轻量试用”，包名 `cn.kangyang.workbook.qa.perf`，与个人版并列安装。已实际检查输入、光标、跟进面板、长列表、搜索返回和大照片；使用者本次试用反馈为“现在不卡顿了，其他都没啥问题”。模拟器单次帧耗时采样及真机测量范围见性能说明。

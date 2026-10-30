@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 package cn.kangyang.workbook.ui
 
 import android.content.Context
@@ -150,13 +150,22 @@ fun ExportScreen(vm: WorkbookViewModel, s: Snapshot) {
     var to by rememberSaveable { mutableStateOf("") }
     var objectId by rememberSaveable { mutableStateOf("") }
     var objectDialog by remember { mutableStateOf(false) }
+    var dateDialog by remember { mutableStateOf<String?>(null) }
     var body by rememberSaveable { mutableStateOf(false) }
     var sensitive by rememberSaveable { mutableStateOf(false) }
     var preview by remember { mutableStateOf<ExportPreview?>(null) }
-    val records = s.entries.filter { it.kind == Kind.INTERACTION }.filter {
-        val date = TimeRules.formatDate(it.occurredAt)
-        (from.isBlank() || date >= from) && (to.isBlank() || date <= to) && (objectId.isBlank() || it.parentId == objectId)
-    }.sortedBy { it.occurredAt }
+    val interactions = s.entriesOf(Kind.INTERACTION)
+    val records = remember(interactions, from, to, objectId) {
+        interactions.asSequence().filter { objectId.isBlank() || it.parentId == objectId }.filter {
+            if (from.isBlank() && to.isBlank()) true else {
+                val date = TimeRules.formatDate(it.occurredAt)
+                (from.isBlank() || date >= from) && (to.isBlank() || date <= to)
+            }
+        }.sortedBy { it.occurredAt }.toList()
+    }
+    val objects = remember(s.entries) {
+        s.entries.filter { it.kind == Kind.ORGANIZATION || it.kind == Kind.CUSTOMER }
+    }
     val valid = (from.isBlank() || TimeRules.parseDate(from) != null) && (to.isBlank() || TimeRules.parseDate(to) != null) && (from.isBlank() || to.isBlank() || from <= to)
     val scope = "${if (objectId.isBlank()) "全部对象" else s.find(objectId)?.title ?: "所选对象"} · ${if (from.isBlank()) "不限开始" else friendlyDate(from)} 至 ${if (to.isBlank()) "不限结束" else friendlyDate(to)}"
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri -> vm.action { writeDocument(context, uri, vm) } }
@@ -166,9 +175,14 @@ fun ExportScreen(vm: WorkbookViewModel, s: Snapshot) {
             val current = preview
             if (current == null) {
                 Text("选择沟通记录", style = MaterialTheme.typography.titleLarge)
-                DateField("开始日期", from, { from = it }, Modifier.testTag("export_from"))
-                DateField("结束日期", to, { to = it }, Modifier.testTag("export_to"))
-                SecondaryAction(s.find(objectId)?.title ?: "全部对象", { objectDialog = true }, Modifier.fillMaxWidth().testTag("export_object"))
+                MetadataShelf {
+                    MetadataChip("开始日期", from.takeIf { it.isNotBlank() }?.let { "从 ${friendlyDate(it)}" }.orEmpty(),
+                        Icons.Outlined.CalendarToday, { dateDialog = "from" }, Modifier.testTag("export_from"))
+                    MetadataChip("结束日期", to.takeIf { it.isNotBlank() }?.let { "到 ${friendlyDate(it)}" }.orEmpty(),
+                        Icons.Outlined.Event, { dateDialog = "to" }, Modifier.testTag("export_to"))
+                    MetadataChip("全部对象", s.find(objectId)?.title.orEmpty(),
+                        Icons.Outlined.People, { objectDialog = true }, Modifier.testTag("export_object"))
+                }
                 TextButton(onClick = { from = ""; to = ""; objectId = "" }) { Text("重置为全部记录") }
                 PrivacyChoices(body, { body = it }, sensitive, { sensitive = it })
                 if (!valid) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
@@ -193,7 +207,12 @@ fun ExportScreen(vm: WorkbookViewModel, s: Snapshot) {
             Text("CSV 可用表格软件打开，电话列请按“文本”导入。活动方案可从活动详情导出摘要；包含全部资料和附件请使用备份。", style = MaterialTheme.typography.bodySmall, color = Muted)
         }
     }
-    if (objectDialog) ObjectPickerPanel(s.entries.filter { it.kind in setOf(Kind.ORGANIZATION, Kind.CUSTOMER) }, objectId.ifBlank { null }, { objectId = it.orEmpty() }, { objectDialog = false }, title = "选择导出对象", contacts = s.entries.filter { it.kind == Kind.CONTACT }, clearLabel = "全部对象")
+    if (objectDialog) ObjectPickerPanel(objects, objectId.ifBlank { null }, { objectId = it.orEmpty() },
+        { objectDialog = false }, title = "选择导出对象", contacts = s.entriesOf(Kind.CONTACT), clearLabel = "全部对象")
+    when (dateDialog) {
+        "from" -> AppDatePicker(from, { from = it }, { dateDialog = null }, "从哪天开始")
+        "to" -> AppDatePicker(to, { to = it }, { dateDialog = null }, "到哪天为止")
+    }
 }
 
 @Composable

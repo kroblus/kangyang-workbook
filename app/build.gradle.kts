@@ -37,6 +37,12 @@ android {
             resValue("string", "app_name", "康养工作簿·轻量试用")
             matchingFallbacks += listOf("release")
         }
+        create("warm") {
+            initWith(getByName("performance"))
+            applicationIdSuffix = ".warm"
+            versionNameSuffix = "-warm"
+            resValue("string", "app_name", "康养工作簿·手记试用")
+        }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

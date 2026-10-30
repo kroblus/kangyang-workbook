@@ -148,7 +148,26 @@ class V11AcceptanceTest {
         waitFor { ui.activity.model.editor?.entry?.id == id }
     }
     private fun genericField(key: String, value: String) {
-        tag("field_$key").performScrollTo().performTextReplacement(value); ui.waitForIdle()
+        val editable = hasTestTag("field_$key") and hasSetTextAction()
+        val needsPanel = ui.onAllNodes(editable).fetchSemanticsNodes().isEmpty()
+        if (needsPanel) {
+            val shortcut = "edit_field_$key"
+            if (ui.onAllNodesWithTag(shortcut).fetchSemanticsNodes().isNotEmpty()) touch(shortcut, scroll = true)
+            else {
+                touch("more_fields", scroll = true)
+                waitFor { ui.onAllNodesWithTag("detail_$key").fetchSemanticsNodes().isNotEmpty() }
+                touch("detail_$key", scroll = true)
+            }
+            waitFor { ui.onAllNodes(editable).fetchSemanticsNodes().isNotEmpty() }
+        }
+        val input = ui.onNode(editable)
+        scrollToIfNeeded(input, editable)
+        input.performTextReplacement(value); ui.waitForIdle()
+        if (needsPanel) {
+            closeKeyboardIfVisible()
+            touch("detail_confirm", scroll = true)
+            waitFor { !tag("detail_confirm").isDisplayed() }
+        }
     }
     private fun genericSave() {
         closeKeyboardIfVisible()
@@ -238,6 +257,53 @@ class V11AcceptanceTest {
         assertEquals(expected, snap().find(id)!!["content"])
     }
 
+    @Test fun noteDetailsEditOneThingAndCancelKeepsBody() {
+        qa(); val id = newNote()
+        val content = "温和整理验收：先记下交流，信息可以随后补充。"
+        val needs = "希望先了解居家护理的服务安排。"
+        body(content); saved(id, content)
+
+        touch("note_more")
+        waitFor { tag("note_points").isDisplayed() }
+        tag("note_title").assertDoesNotExist()
+        tag("note_needs").assertDoesNotExist()
+        touch("note_points", scroll = true)
+        waitFor { tag("note_edit_needs").isDisplayed() }
+        tag("note_needs").assertDoesNotExist()
+        touch("note_edit_needs", scroll = true)
+        waitFor { ui.onAllNodes(hasTestTag("note_needs") and hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        tag("note_needs").assertIsDisplayed()
+        // The live body remains underneath; the metadata editor exposes just
+        // the selected item, never a second column of optional text fields.
+        listOf("title", "participants", "mode", "purpose", "terms", "promises", "obstacles", "conclusion", "certainty", "tags").forEach {
+            tag("note_$it").assertDoesNotExist()
+        }
+        tag("note_needs").performTextReplacement(needs)
+        closeKeyboardIfVisible(); touch("detail_confirm", scroll = true)
+        waitFor { !tag("note_needs").isDisplayed() && snap().find(id)?.get("needs") == needs }
+        saved(id, content)
+        tag("note_body").assertTextEquals(content)
+        assertEquals(needs, snap().find(id)!!["needs"])
+
+        val revision = ui.activity.model.editor!!.revision
+        touch("note_more")
+        waitFor { tag("note_points").isDisplayed() }
+        touch("note_points", scroll = true)
+        waitFor { tag("note_edit_needs").isDisplayed() }
+        touch("note_edit_needs", scroll = true)
+        waitFor { ui.onAllNodes(hasTestTag("note_needs") and hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        tag("note_needs").assertTextContains(needs)
+        tag("note_needs").performTextReplacement("这段尚未确认的文字应该取消。")
+        closeKeyboardIfVisible()
+        touchNode(ui.onNodeWithContentDescription("关闭面板"))
+        waitFor { !tag("note_needs").isDisplayed() }
+        assertEquals(revision, ui.activity.model.editor!!.revision)
+        assertEquals(needs, ui.activity.model.editor!!.entry["needs"])
+        assertEquals(needs, snap().find(id)!!["needs"])
+        tag("note_body").assertTextEquals(content)
+        assertEquals(content, snap().find(id)!!["content"])
+    }
+
     @Test fun appendObjectYesterdayAndIndependentFollowup() {
         qa()
         val id = newNote()
@@ -271,7 +337,9 @@ class V11AcceptanceTest {
         touch("field_date", scroll = true); touch("date_today")
         genericField("title", "准备发送介绍并电话确认")
         // A false reminder must remain false after returning to the source note.
-        if (ui.activity.model.editor!!.entry["reminder"] == "true") touch("field_reminder", scroll = true)
+        if (ui.activity.model.editor!!.entry["reminder"] == "true") {
+            touch("field_reminder", scroll = true); touch("option_不提醒", scroll = true)
+        }
         genericSave()
         val independentlyEdited = snap().find(task.id)!!
         editEntry(id, "追加整理验收")
@@ -287,9 +355,11 @@ class V11AcceptanceTest {
         assertEquals(organized.occurredAt, snap().find(id)!!.occurredAt)
         writeIdentity("organized-note", snap().find(id)!!)
         touch("note_done"); home(); touch("tasks_all"); touch("entry_${task.id}", scroll = true)
-        touch("reschedule_task", scroll = true); text("时刻、优先级与备注")
+        touch("reschedule_task", scroll = true); touch("followup_edit_note", scroll = true)
         tag("followup_note").performScrollTo().performTextReplacement("已完成电话确认，备注需要保留。")
-        closeKeyboardIfVisible(); touch("followup_submit", scroll = true)
+        closeKeyboardIfVisible(); touch("detail_confirm", scroll = true)
+        waitFor { !tag("followup_note").isDisplayed() }
+        touch("followup_submit", scroll = true)
         touch("complete_task", scroll = true); waitFor { snap().find(task.id)?.get("status") == "已完成" }
         text("详细资料与更多操作"); text("重新打开")
         waitFor { snap().find(task.id)?.get("status") == "未完成" }
@@ -427,7 +497,6 @@ class V11AcceptanceTest {
         writeIdentity("pending-activity", activity)
         home(); touch("nav_activities"); tag("list_search").performTextReplacement(title)
         touch("entry_${activity.id}", scroll = true); touch("edit_entry")
-        touch("activity_schedule", scroll = true)
         touch("field_start", scroll = true); touch("date_today"); timeInput("09", "30")
         touch("field_end", scroll = true); touch("date_today"); timeInput("09", "00")
         closeKeyboardIfVisible(); touch("save_entry", scroll = true)
@@ -777,7 +846,7 @@ class V11AcceptanceTest {
         home(); touch("tasks_all"); text("新增")
         genericField("title", "示例·旧填写保护跟进$suffix")
         touch("field_date", scroll = true); touch("date_tomorrow")
-        touch("field_reminder", scroll = true)
+        touch("field_reminder", scroll = true); touch("option_提醒我", scroll = true)
         device.wait(Until.findObject(By.res("com.android.permissioncontroller:id/permission_allow_button")), 2_000)?.click()
         val id = ui.activity.model.editor!!.entry.id; genericSave()
         val initial = snap().find(id)!!

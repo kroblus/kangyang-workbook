@@ -1,6 +1,8 @@
 package cn.kangyang.workbook.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,14 +17,19 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.kangyang.workbook.data.Entry
 import cn.kangyang.workbook.data.Kind
@@ -31,10 +38,24 @@ import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.flow.first
 
 object AppMotion {
     const val Quick = 120
     const val Change = 180
+    const val Page = 220
+}
+
+/** Only the incoming page is composed. Animate its layer, not its layout or live text. */
+@Composable
+fun LightPageTransition(pageKey: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val progress = remember(pageKey) { Animatable(0f) }
+    val travel = with(LocalDensity.current) { 8.dp.toPx() }
+    LaunchedEffect(progress) { progress.animateTo(1f, tween(AppMotion.Page, easing = FastOutSlowInEasing)) }
+    Box(modifier.graphicsLayer {
+        alpha = .55f + .45f * progress.value
+        translationY = travel * (1f - progress.value)
+    }) { content() }
 }
 
 /** Fade a disclosure once; don't interpolate the height of a long form on every frame. */
@@ -105,12 +126,23 @@ fun AppTextField(
 @Composable
 fun AppBottomSheet(title: String, onDismiss: () -> Unit, dismissEnabled: Boolean = true,
                    scrollable: Boolean = true,
+                   onShown: (() -> Unit)? = null,
                    bottomBar: (@Composable (close: () -> Unit) -> Unit)? = null,
                    content: @Composable ColumnScope.(close: () -> Unit) -> Unit) {
     val canDismiss by rememberUpdatedState(dismissEnabled)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
         confirmValueChange = { it != SheetValue.Hidden || canDismiss })
     val dismiss by rememberUpdatedState(onDismiss)
+    val shown by rememberUpdatedState(onShown)
+    LaunchedEffect(sheetState) {
+        if (shown != null) {
+            snapshotFlow {
+                sheetState.currentValue == SheetValue.Expanded &&
+                    sheetState.targetValue == SheetValue.Expanded && !sheetState.isAnimationRunning
+            }.first { it }
+            shown?.invoke()
+        }
+    }
     var closeRequested by remember { mutableStateOf(false) }
     LaunchedEffect(closeRequested, dismissEnabled) {
         if (closeRequested && dismissEnabled) {
@@ -152,6 +184,78 @@ fun AppBottomSheet(title: String, onDismiss: () -> Unit, dismissEnabled: Boolean
                     verticalArrangement = Arrangement.spacedBy(8.dp)) { actions(close) }
             }
         }
+    }
+}
+
+/** Optional context belongs beside a note; each chip opens one small editing task. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MetadataShelf(modifier: Modifier = Modifier, content: @Composable FlowRowScope.() -> Unit) {
+    FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+}
+
+@Composable
+fun MetadataChip(label: String, value: String = "", icon: ImageVector, onClick: () -> Unit,
+                 modifier: Modifier = Modifier) {
+    val hasValue = value.isNotBlank()
+    val summary = remember(value) {
+        value.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.let {
+            if (it.length > 48) it.take(48) + "…" else it
+        }.orEmpty()
+    }
+    val background by animateColorAsState(
+        if (hasValue) Mint else MaterialTheme.colorScheme.surfaceContainerLow,
+        tween(AppMotion.Quick), label = "metadata-tone")
+    Surface(onClick = onClick, shape = AppShapes.control, color = background,
+        modifier = modifier.widthIn(max = 280.dp).heightIn(min = 48.dp)
+            .semantics { contentDescription = if (hasValue) "$label，$value" else label }) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, null, Modifier.size(18.dp), tint = if (hasValue) Brand else Muted)
+            Text(if (hasValue) "$label · $summary" else label, style = MaterialTheme.typography.labelMedium,
+                color = if (hasValue) Brand else Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+fun DetailAction(title: String, summary: String = "", icon: ImageVector, onClick: () -> Unit,
+                 modifier: Modifier = Modifier) {
+    Surface(onClick = onClick, shape = AppShapes.control, color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, Modifier.size(22.dp), tint = Green)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall,
+                    color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), tint = Muted)
+        }
+    }
+}
+
+/** Keep edits local until Done; dismissing the sheet leaves the original value untouched. */
+@Composable
+fun TextDetailSheet(title: String, value: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit,
+                    placeholder: String = "", singleLine: Boolean = false,
+                    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+                    testTag: String = "detail_text", supportingText: String? = null,
+                    confirmTag: String = "detail_confirm") {
+    var text by rememberSaveable(title) { mutableStateOf(value) }
+    var submitted by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    AppBottomSheet(title, onDismiss, onShown = { focus.requestFocus() },
+        bottomBar = { close ->
+            PrimaryAction("完成", { submitted = true; onConfirm(text); close() },
+                Modifier.fillMaxWidth().testTag(confirmTag), enabled = !submitted)
+        }) {
+        AppTextField(text, { text = it }, placeholder.takeIf { it.isNotBlank() },
+            Modifier.fillMaxWidth().focusRequester(focus).testTag(testTag),
+            minLines = if (singleLine) 1 else 4, singleLine = singleLine,
+            keyboardOptions = keyboardOptions, supportingText = supportingText)
     }
 }
 
