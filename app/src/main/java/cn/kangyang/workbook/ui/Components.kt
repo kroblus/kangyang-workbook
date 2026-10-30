@@ -1,5 +1,10 @@
 package cn.kangyang.workbook.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -11,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -25,10 +31,32 @@ import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
+
+object AppMotion {
+    const val Quick = 120
+    const val Change = 180
+}
+
+/** Only discrete disclosure changes animate; typing and keyboard layout stay immediate. */
+@Composable
+fun ExpandingSection(visible: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(tween(AppMotion.Change), expandFrom = Alignment.Top) + fadeIn(tween(AppMotion.Quick)),
+        exit = shrinkVertically(tween(AppMotion.Quick), shrinkTowards = Alignment.Top) + fadeOut(tween(AppMotion.Quick)),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+    }
+}
 
 @Composable
 fun PrimaryAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    Button(onClick, modifier.heightIn(min = 52.dp), enabled = enabled, shape = AppShapes.control,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed && enabled) .985f else 1f, tween(90), label = "primaryPress")
+    Button(onClick, modifier.heightIn(min = 52.dp).graphicsLayer { scaleX = scale; scaleY = scale }, enabled = enabled, shape = AppShapes.control,
+        interactionSource = interaction,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
         colors = ButtonDefaults.buttonColors(disabledContainerColor = Ink.copy(alpha = .12f), disabledContentColor = Ink.copy(alpha = .38f))) {
         Text(text, style = MaterialTheme.typography.labelLarge)
@@ -80,15 +108,25 @@ fun AppTextField(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppBottomSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+fun AppBottomSheet(title: String, onDismiss: () -> Unit, dismissEnabled: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+    val canDismiss by rememberUpdatedState(dismissEnabled)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
+        confirmValueChange = { it != SheetValue.Hidden || canDismiss })
+    val scope = rememberCoroutineScope()
+    val dismiss by rememberUpdatedState(onDismiss)
+    ModalBottomSheet(onDismissRequest = { if (canDismiss) dismiss() }, sheetState = sheetState,
         shape = AppShapes.sheet, containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp, dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outline) }) {
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                IconAction(Icons.Outlined.Close, "关闭面板", onDismiss)
+                IconAction(Icons.Outlined.Close, "关闭面板", {
+                    scope.launch {
+                        sheetState.hide()
+                        if (!sheetState.isVisible) dismiss()
+                    }
+                }, enabled = dismissEnabled)
             }
             content()
         }
@@ -116,21 +154,25 @@ fun AppFilterChip(label: String, selected: Boolean, onClick: () -> Unit, modifie
 fun ObjectPickerPanel(
     entries: List<Entry>, selectedId: String?, onSelect: (String?) -> Unit, onDismiss: () -> Unit,
     title: String = "关联对象", allowClear: Boolean = true, recentIds: List<String> = emptyList(),
+    contacts: List<Entry> = emptyList(), clearLabel: String = "暂不关联",
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable { mutableStateOf("全部") }
     val candidates = entries.filter { !it.archived || it.id == selectedId }
+    val contactMatches = if (query.isBlank()) emptySet() else contacts.filter { contact ->
+        (contact.title + " " + contact["phone"]).contains(query.trim(), ignoreCase = true)
+    }.mapNotNull { it.parentId }.toSet()
     val choices = candidates.filter { entry ->
         (kind == "全部" || (kind == "单位" && entry.kind == Kind.ORGANIZATION) || (kind == "客户" && entry.kind == Kind.CUSTOMER)) &&
-            (query.isBlank() || (entry.title + " " + entry["area"] + " " + entry["phone"] + " " + entry["needs"]).contains(query.trim(), ignoreCase = true))
+            (query.isBlank() || entry.id in contactMatches || (entry.title + " " + entry["area"] + " " + entry["phone"] + " " + entry["needs"]).contains(query.trim(), ignoreCase = true))
     }.sortedWith(compareBy<Entry> { if (query.isNotBlank()) 0 else recentIds.indexOf(it.id).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }.thenByDescending { it.updatedAt })
     AppBottomSheet(title, onDismiss) {
-        AppTextField(query, { query = it }, "搜索名称、区域或电话", Modifier.fillMaxWidth().testTag("object_search"), singleLine = true)
+        AppTextField(query, { query = it }, if (contacts.isEmpty()) "搜索名称或区域" else "搜索名称、联系人或电话", Modifier.fillMaxWidth().testTag("object_search"), singleLine = true)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val kinds = listOf("全部") + listOfNotNull("单位".takeIf { candidates.any { it.kind == Kind.ORGANIZATION } }, "客户".takeIf { candidates.any { it.kind == Kind.CUSTOMER } })
             kinds.forEach { label -> AppFilterChip(label, kind == label, { kind = label }) }
         }
-        if (allowClear) SecondaryAction("暂不关联", { onSelect(null); onDismiss() }, Modifier.fillMaxWidth().testTag("object_clear"))
+        if (allowClear) SecondaryAction(clearLabel, { onSelect(null); onDismiss() }, Modifier.fillMaxWidth().testTag("object_clear"))
         Text(if (query.isBlank()) "${if (recentIds.isNotEmpty()) "最近使用" else "最近更新"} · ${choices.size} 个对象" else "找到 ${choices.size} 个对象", style = MaterialTheme.typography.bodySmall, color = Muted)
         choices.forEach { entry ->
             Surface(onClick = { onSelect(entry.id); onDismiss() }, shape = AppShapes.card,

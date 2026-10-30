@@ -85,7 +85,11 @@ class V11AcceptanceTest {
         // A fixed footer (for example save_entry) is already reachable and has no
         // scroll parent. Scrolling is only allowed when a caller requested it and
         // the actual rendered target is offscreen. T01 never requests scrolling.
-        if (scroll && !node.isDisplayed()) node.performScrollTo()
+        if (scroll && !node.isDisplayed()) {
+            if (ui.activity.model.route == "tasks" && ui.onAllNodesWithTag(name).fetchSemanticsNodes().isEmpty()) {
+                tag("task_list").performScrollToNode(hasTestTag(name))
+            } else node.performScrollTo()
+        }
         node.assertIsDisplayed().assertIsEnabled()
         device.waitForIdle()
         val semantics = node.fetchSemanticsNode()
@@ -1021,20 +1025,41 @@ class V11AcceptanceTest {
             "Host must revoke QA notification permission and clear user-set/user-fixed flags before launching this method; revoking inside instrumentation may kill its UID"
         }
         assertEquals(android.content.pm.PackageManager.PERMISSION_DENIED, ui.activity.checkSelfPermission(permission))
-            val id = newNote(); val beforeTasks = snap().entries.filter { it.kind == Kind.TASK }.map { it.id }.toSet()
-            touch("note_followup"); tag("followup_title").performTextReplacement("示例·先有独立跟进，还没写正文")
-            touch("followup_tomorrow"); closeKeyboardIfVisible(); touch("followup_reminder", scroll = true)
-            val deny = device.wait(Until.findObject(By.res(java.util.regex.Pattern.compile("com.android.permissioncontroller:id/permission_deny.*"))), 6000)
-            checkNotNull(deny) { "Expected actual Android notification permission dialog" }.click()
-            ui.waitForIdle(); shot("t12-notification-denied-still-editable")
-            touch("followup_submit", scroll = true)
-            waitFor { snap().entries.any { it.kind == Kind.TASK && it.id !in beforeTasks } }
-            val task = snap().entries.single { it.kind == Kind.TASK && it.id !in beforeTasks }
-            assertNull(task.sourceId); assertNull(snap().find(id))
-            touch("note_done"); waitFor { ui.activity.model.editor == null }
-            assertNull(snap().find(id))
-            home(); touch("settings"); tag("enable_notifications").performScrollTo().assertExists()
-            File(evidence, "t12-denied-independent-task.txt").writeText("PASS actual Android permission denied; independent explicit TASK saved; blank note never created; enabling notification remains available\ntask=${task.id}")
+        val id = newNote(); val beforeTasks = snap().entries.filter { it.kind == Kind.TASK }.map { it.id }.toSet()
+        val firstTitle = "示例·先有独立跟进，还没写正文"
+        val secondTitle = "示例·同一空白记录再加一条独立跟进"
+        touch("note_followup"); tag("followup_title").performTextReplacement(firstTitle)
+        touch("followup_tomorrow"); closeKeyboardIfVisible(); touch("followup_reminder", scroll = true)
+        val deny = device.wait(Until.findObject(By.res(java.util.regex.Pattern.compile("com.android.permissioncontroller:id/permission_deny.*"))), 6000)
+        checkNotNull(deny) { "Expected actual Android notification permission dialog" }.click()
+        ui.waitForIdle(); shot("t12-notification-denied-still-editable")
+        touch("followup_submit", scroll = true)
+        waitFor { snap().entries.any { it.kind == Kind.TASK && it.id !in beforeTasks } }
+        waitFor { !tag("followup_submit").isDisplayed() }
+        val firstTask = snap().entries.single { it.kind == Kind.TASK && it.id !in beforeTasks }
+        assertEquals(firstTitle, firstTask.title)
+        assertNull(firstTask.sourceId); assertNull(snap().find(id))
+        assertEquals(id, ui.activity.model.editor?.entry?.id)
+
+        // Stay in the same empty note: a new panel must create a different task,
+        // not report success after returning the first task's deterministic ID.
+        touch("note_followup"); tag("followup_title").performTextReplacement(secondTitle)
+        touch("followup_tomorrow"); closeKeyboardIfVisible()
+        touch("followup_submit", scroll = true)
+        waitFor { snap().entries.count { it.kind == Kind.TASK && it.id !in beforeTasks } == 2 }
+        waitFor { !tag("followup_submit").isDisplayed() }
+        val tasks = snap().entries.filter { it.kind == Kind.TASK && it.id !in beforeTasks }
+        assertEquals(2, tasks.map { it.id }.toSet().size)
+        assertEquals(setOf(firstTitle, secondTitle), tasks.map { it.title }.toSet())
+        tasks.forEach { assertNull(it.sourceId) }
+        assertEquals(firstTitle, snap().find(firstTask.id)?.title)
+        assertEquals(id, ui.activity.model.editor?.entry?.id)
+        assertNull(snap().find(id))
+        touch("note_done"); waitFor { ui.activity.model.editor == null }
+        assertNull(snap().find(id))
+        assertEquals(2, snap().entries.count { it.kind == Kind.TASK && it.id !in beforeTasks })
+        home(); touch("settings"); tag("enable_notifications").performScrollTo().assertExists()
+        File(evidence, "t12-denied-independent-task.txt").writeText("PASS actual Android permission denied; two independent TASKs with distinct IDs and both titles saved from the same empty note; blank note never created; enabling notification remains available\ntasks=${tasks.joinToString { it.id }}")
     }
 
     @Test fun representativeWidthAndFontLayout() {

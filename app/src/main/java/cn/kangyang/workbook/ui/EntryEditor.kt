@@ -67,7 +67,11 @@ fun EntryEditor(
                     Text(editorHeading(entry.kind), fontSize = 21.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 }
                 Text(
-                    draftStatus.ifEmpty { "填写后自动保存草稿" },
+                    when (draftStatus) {
+                        "已保存", "写下内容后自动保存", "开始填写后自动保存", "" -> "填写后点保存，进度会自动暂存"
+                        "草稿已保存" -> "填写已暂存，点保存后生效"
+                        else -> draftStatus
+                    },
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp).testTag("draft_status").clickable(enabled = draftStatus.contains("重试")) { onRetryDraft() },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (draftStatus.contains("未保存") || draftStatus.contains("失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -106,7 +110,7 @@ fun EntryEditor(
                     EditorText("区域", get("area"), "area", onValue = { update("area", it) })
                     EditorSelect("合作阶段", get("stage").ifEmpty { "待联系" }, "stage", OrganizationStages, onValue = { update("stage", it) })
                     MoreButton(expanded) { expanded = !expanded }
-                    if (expanded) {
+                    ExpandingSection(expanded) {
                         EditorSelect("主体性质（选填）", get("nature").ifEmpty { "暂不清楚" }, "nature", OrganizationNatures, onValue = { update("nature", it) })
                         EditorHint("主体性质按实际了解填写，可保留暂不清楚。")
                         EditorText("地址", get("address"), "address", multiline = true, onValue = { update("address", it) })
@@ -119,7 +123,7 @@ fun EntryEditor(
                     EditorText("需求说明", get("needs"), "needs", multiline = true, onValue = { update("needs", it) })
                     EditorSelect("进展阶段", get("stage").ifEmpty { "新咨询" }, "stage", CustomerStages, onValue = { update("stage", it) })
                     MoreButton(expanded) { expanded = !expanded }
-                    if (expanded) {
+                    ExpandingSection(expanded) {
                         EditorSelect("紧急程度", get("urgency").ifEmpty { "普通" }, "urgency", listOf("普通", "近期", "紧急"), onValue = { update("urgency", it) })
                         EditorText("来源", get("source"), "source", onValue = { update("source", it) })
                         EditorText("服务区域", get("area"), "area", onValue = { update("area", it) })
@@ -155,10 +159,10 @@ fun EntryEditor(
                     })
                     if (get("start").isBlank() && get("end").isBlank()) EditorHint("时间待定也可以保存，之后再安排。")
                     SecondaryAction(if (scheduleExpanded) "收起时间与地点" else "安排时间与地点", { scheduleExpanded = !scheduleExpanded }, Modifier.fillMaxWidth().testTag("activity_schedule"))
-                    if (scheduleExpanded) {
+                    ExpandingSection(scheduleExpanded) {
                         EditorDateTime("开始时间", get("start"), "start", onValue = { update("start", it) })
                         EditorDateTime("结束时间", get("end"), "end", onValue = { update("end", it) })
-                        if (get("start").isNotBlank() || get("end").isNotBlank()) {
+                        if (get("status").ifBlank { "筹备中" } == "筹备中" && (get("start").isNotBlank() || get("end").isNotBlank())) {
                             TextButton(onClick = {
                                 error = null
                                 onChange(entry.copy(fields = entry.fields + mapOf("start" to "", "end" to "", "status" to "筹备中", "remindMinutes" to "")))
@@ -175,7 +179,7 @@ fun EntryEditor(
                     }
                     EditorText("物料清单", get("materials"), "materials", multiline = true, supporting = "保存后可逐项添加筹备跟进", onValue = { update("materials", it) })
                     MoreButton(expanded) { expanded = !expanded }
-                    if (expanded) {
+                    ExpandingSection(expanded) {
                         EditorSection("筹备资料")
                         EditorSelect("活动类型", get("type").ifEmpty { "线下交流" }, "type", listOf("线下交流", "健康宣教", "机构参访", "器具体验", "照护培训", "其他"), onValue = { update("type", it) })
                         EditorText("活动目标", get("goal"), "goal", multiline = true, onValue = { update("goal", it) })

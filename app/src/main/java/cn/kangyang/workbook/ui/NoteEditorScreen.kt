@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -27,6 +28,11 @@ import cn.kangyang.workbook.data.*
 import cn.kangyang.workbook.domain.TimeRules
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+
+private val FollowUpEntrySaver = Saver<Entry, String>(
+    save = { dataJson.encodeToString(Entry.serializer(), it) },
+    restore = { dataJson.decodeFromString(Entry.serializer(), it) },
+)
 
 fun noteTitle(e:Entry,s:Snapshot):String = e.title.takeIf{it.isNotBlank()}
     ?: e["content"].lineSequence().firstOrNull{it.isNotBlank()}?.trim()?.take(60)
@@ -107,7 +113,7 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
             SecondaryAction("选择文件",{panel="";onFile()},Modifier.fillMaxWidth().testTag("note_file"))
         }
         "link"->ObjectPickerPanel(s.entries.filter{it.kind in setOf(Kind.ORGANIZATION,Kind.CUSTOMER)},e.parentId,
-            {id->vm.change(e.copy(parentId=id));panel=""},{panel=""},recentIds=s.entries.filter{it.kind==Kind.INTERACTION}.sortedByDescending{it.updatedAt}.mapNotNull{it.parentId}.distinct())
+            {id->vm.change(e.copy(parentId=id));panel=""},{panel=""},recentIds=s.entries.filter{it.kind==Kind.INTERACTION}.sortedByDescending{it.updatedAt}.mapNotNull{it.parentId}.distinct(),contacts=s.entries.filter{it.kind==Kind.CONTACT})
         "date"->OccurrencePanel(e,{value->vm.change(value);panel=""},{panel=""})
         "followup"->FollowUpPanel(vm,s,tasks.find{it.id==selectedTaskId} ?: tasks.firstOrNull(),e,{panel=""},onNotifications)
         "more"->AppBottomSheet("更多信息",{panel=""}) {
@@ -157,15 +163,16 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
 
 @Composable fun FollowUpPanel(vm:WorkbookViewModel,s:Snapshot,original:Entry?,source:Entry?,onDismiss:()->Unit,onNotifications:()->Unit) {
     // Load TASK once when opening. Only changed fields are submitted as a patch.
-    val baseline=remember(original?.id){original}
-    val initial=remember(original?.id,source?.id){original ?: Entry(id=source?.let{"followup-${it.id}"} ?: java.util.UUID.randomUUID().toString(),kind=Kind.TASK,parentId=source?.parentId,sourceId=source?.id,
-        fields=mapOf("status" to "未完成","priority" to "普通"))}
-    var task by remember{mutableStateOf(initial)}
+    val baseline=if(original!=null) rememberSaveable(original.id,saver=FollowUpEntrySaver){original} else null
+    // A new form owns its own identity; retries and rotation reuse that identity.
+    var task by rememberSaveable(original?.id,source?.id,stateSaver=FollowUpEntrySaver){mutableStateOf(original ?: Entry(
+        id=java.util.UUID.randomUUID().toString(),kind=Kind.TASK,parentId=source?.parentId,sourceId=source?.id,
+        fields=mapOf("status" to "未完成","priority" to "普通")))}
     var busy by remember{mutableStateOf(false)}
     var error by remember{mutableStateOf<String?>(null)}
     var more by rememberSaveable{mutableStateOf(false)}
     fun field(key:String,value:String){task=task.copy(fields=task.fields+(key to value))}
-    AppBottomSheet(if(original==null)"加一个跟进" else "修改跟进",{if(!busy)onDismiss()}) {
+    AppBottomSheet(if(original==null)"加一个跟进" else "修改跟进",{if(!busy)onDismiss()},dismissEnabled=!busy) {
         AppTextField(task.title,{task=task.copy(title=it)},"要做的事情",Modifier.fillMaxWidth().testTag("followup_title"))
         if(original==null && source?.get("nextStep")?.isNotBlank()==true) TextButton(onClick={task=task.copy(title=source["nextStep"])}){Text("采用旧记录的下一步建议")}
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -175,10 +182,10 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
         }
         DateField("跟进日期",task["date"],{if(it.isBlank())task=task.copy(fields=task.fields+mapOf("date" to "","time" to "","reminder" to "false")) else field("date",it)},Modifier.fillMaxWidth().testTag("followup_date"))
         TextButton(onClick={more=!more}){Text(if(more)"收起时刻与其他设置" else "时刻、优先级与备注")}
-        if(more) {
+        ExpandingSection(more) {
             TimeField("具体时刻（选填）",task["time"],{field("time",it)},Modifier.fillMaxWidth())
             FlowRow {TaskPriorities.forEach{p->FilterChip(selected=task["priority"]==p,onClick={field("priority",p)},label={Text(p)})}}
-            AppTextField(task["completionNote"],{field("completionNote",it)},"完成备注",Modifier.fillMaxWidth().testTag("followup_note"))
+            AppTextField(task["completionNote"],{field("completionNote",it)},if(task["status"]=="已完成")"完成备注" else "备注（选填）",Modifier.fillMaxWidth().testTag("followup_note"))
         }
         Row(verticalAlignment=Alignment.CenterVertically) {Switch(task["reminder"]=="true",{v->field("reminder",v.toString());if(v)onNotifications()},modifier=Modifier.testTag("followup_reminder"));Spacer(Modifier.width(8.dp));Text("开启提醒")}
         Text(if(task["reminder"]=="true"&&task["time"].isBlank())"只设日期时在当天 09:00 提醒，系统可能延后。" else "提醒可选，正文保存不会改变跟进。",color=Muted,style=MaterialTheme.typography.bodySmall)
@@ -197,8 +204,8 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
 @Composable fun NoteDetail(vm:WorkbookViewModel,e:Entry,s:Snapshot,onAttachment:(Attachment)->Unit,onNotifications:()->Unit) {
     var more by rememberSaveable(e.id){mutableStateOf(false)}
     var summary by remember{mutableStateOf(false)}
-    var followup by remember{mutableStateOf(false)}
-    var selectedTaskId by remember{mutableStateOf<String?>(null)}
+    var followup by rememberSaveable(e.id){mutableStateOf(false)}
+    var selectedTaskId by rememberSaveable(e.id){mutableStateOf<String?>(null)}
     Column(Modifier.fillMaxSize()) {
         BackTitle("沟通记录",vm::back,actions={TextButton(onClick={vm.edit(e)},modifier=Modifier.testTag("edit_entry")){Text("编辑")}})
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).testTag("detail_scroll"),verticalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -213,7 +220,7 @@ fun occurrenceLabel(e:Entry,now:Long=TimeRules.now()):String {
             tasks.forEach {FollowUpRow(it,s,vm.clockNow,{vm.navigate("detail:${it.id}")},{vm.taskStatus(it,"已完成")},{selectedTaskId=it.id;followup=true})}
             if(tasks.isEmpty()) Text("想好下一步时，再加入跟进。",color=Muted)
             TextButton(onClick={more=!more}){Text(if(more)"收起更多信息" else "更多信息")}
-            if(more) {
+            ExpandingSection(more) {
                 e.fields.filterKeys{it !in listOf("content","occurredDate","occurredTime")&&!it.startsWith("_")}.filterValues{it.isNotBlank()}.forEach{(k,v)->Text("${fieldLabel(k)}\n$v")}
                 Text("创建于 ${TimeRules.formatDateTime(e.createdAt)}\n更新于 ${TimeRules.formatDateTime(e.updatedAt)}",color=Muted,style=MaterialTheme.typography.bodySmall)
             }

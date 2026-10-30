@@ -2,6 +2,8 @@
 
 给养老顾问使用的单人离线 Android 工作记录工具。打开工作台，点一次“记一笔”就能写正文；不用先填标题、对象、日期或分类。内容真正保存后，可从最近记录和搜索找回，再补对象、发生时间、附件和跟进。
 
+开发协作先看 [AGENTS.md](AGENTS.md)：个人开发、快速迭代，按本次改动选择验证范围。
+
 **V1.1 / 1.1.0 / versionCode 5** · [下载试用APK与41.57秒实录](https://github.com/kroblus/kangyang-workbook/releases/tag/v1.1.0) · [验收报告](docs/ACCEPTANCE.md)
 
 <img src="docs/screenshots-v1.1/home.png" alt="V1.1实际模拟器未滚动首页" width="280"> <img src="docs/screenshots-v1.1/editor-keyboard.png" alt="点一次记一笔直接聚焦正文" width="280">

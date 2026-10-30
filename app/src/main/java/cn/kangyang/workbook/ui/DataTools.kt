@@ -193,7 +193,7 @@ fun ExportScreen(vm: WorkbookViewModel, s: Snapshot) {
             Text("CSV 可用表格软件打开，电话列请按“文本”导入。活动方案可从活动详情导出摘要；包含全部资料和附件请使用备份。", style = MaterialTheme.typography.bodySmall, color = Muted)
         }
     }
-    if (objectDialog) ObjectPickerPanel(s.entries.filter { it.kind in setOf(Kind.ORGANIZATION, Kind.CUSTOMER) }, objectId.ifBlank { null }, { objectId = it.orEmpty() }, { objectDialog = false }, title = "选择导出对象")
+    if (objectDialog) ObjectPickerPanel(s.entries.filter { it.kind in setOf(Kind.ORGANIZATION, Kind.CUSTOMER) }, objectId.ifBlank { null }, { objectId = it.orEmpty() }, { objectDialog = false }, title = "选择导出对象", contacts = s.entries.filter { it.kind == Kind.CONTACT }, clearLabel = "全部对象")
 }
 
 @Composable
