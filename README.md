@@ -14,7 +14,7 @@
 
 ## 开始使用
 
-- [给姜宏的简短试用说明](docs/TRYOUT.md)
+- [简短试用说明](docs/TRYOUT.md)
 - [T01–T12 验收、APK身份与限制](docs/ACCEPTANCE.md)
 - [相对 V1 基线的变更与迁移决策](docs/V1.1-DESIGN.md)
 - [功能说明](docs/PRODUCT.md)、[数据与备份](docs/DATA.md)、[本地提醒](docs/REMINDERS.md)
@@ -24,6 +24,14 @@
 应用不需要注册，不自行联网、上传资料或调用 AI。支持 Android 8.0 及以上；本轮实际设备范围为已有 Android 16 / API 36 模拟器，朋友真实手机尚未测试。测试签名 APK 更新时应直接覆盖，保持相同包名和签名，不要先卸载。
 
 ## 构建
+
+这轮轻量化修改使用开启 R8 的非调试试用包检查性能：
+
+```powershell
+.\gradlew.bat :app:assembleQaPerformance
+```
+
+输出 `app/build/outputs/apk/qa/performance/app-qa-performance.apk`，包名 `cn.kangyang.workbook.qa.perf`，桌面名称“康养工作簿·轻量试用”。它与个人包和原 QA 包并列安装，不需要卸载现有应用。具体改动与简短性能采样方法见 [性能说明](docs/PERFORMANCE.md)。日常开发与已有功能回归仍可使用 Debug。
 
 使用 JDK 17 或更高版本与 Android SDK 36。工程保留已锁定的 Gradle 8.13、AGP 8.13.2、Kotlin 2.3.21 等依赖。本机 SDK 路径放在未跟踪的 `local.properties`。
 

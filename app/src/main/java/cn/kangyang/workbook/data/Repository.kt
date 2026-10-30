@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,6 +26,10 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
     private val sessionGeneration = AtomicLong(0)
     val generation: Long get() = sessionGeneration.get()
     val state: Flow<Snapshot> = dao.changes().map { snapshot() }
+    // Notes and drafts do not change reminders. Avoid a second full workbook snapshot
+    // and suppress Room invalidations whose TASK/ACTIVITY rows are unchanged.
+    val reminderState: Flow<Snapshot> = dao.observeReminderEntries().distinctUntilChanged()
+        .map { Snapshot(entries = it) }
 
     /** Test seams are never wired to a production control. */
     internal var beforeNoteCommit: (suspend (Long) -> Unit)? = null
@@ -44,7 +49,20 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
     }
 
     suspend fun snapshot(): Snapshot = withContext(Dispatchers.IO) { database.withTransaction { snapshotUnlocked() } }
+    suspend fun reminderSnapshot(): Snapshot = withContext(Dispatchers.IO) { Snapshot(entries = dao.reminderEntries()) }
     internal suspend fun snapshotUnlocked(): Snapshot = Snapshot(dao.entries(), dao.drafts(), dao.attachments(), dao.sealedDrafts().map { it.id })
+
+    private suspend fun relationEntries(entry: Entry): Map<String, Entry> {
+        val ids = buildList {
+            entry.parentId?.let { add(it) }
+            entry.sourceId?.let { add(it) }
+            if (entry.kind == Kind.CUSTOMER) {
+                add(entry["linkedOrganization"]); add(entry["linkedActivity"])
+            }
+            if (entry.kind == Kind.ACTIVITY) add(entry["organizationId"])
+        }.filter(String::isNotBlank).distinct()
+        return if (ids.isEmpty()) emptyMap() else dao.entriesByIds(ids).associateBy { it.id }
+    }
 
     /** Claim a new editor, or resume the same persisted editor after process recreation. */
     suspend fun beginNoteSession(entryId: String, sessionId: String, expectedGeneration: Long = generation): Long = mutate(expectedGeneration) {
@@ -56,7 +74,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
         existing?.let {
             val oldBuffer = dao.draft(it.sessionId)
             val published = dao.entry(entryId)
-            val hasAttachment = dao.attachments().any { attachment -> attachment.ownerId == entryId }
+            val hasAttachment = dao.hasAttachments(entryId)
             if (oldBuffer != null && ((published == null && !hasAttachment) || (published != null && !sameNoteContent(oldBuffer.entry, published))) && oldBuffer.entry["content"].isNotBlank()) {
                 dao.upsert(oldBuffer.copy(id = UUID.randomUUID().toString(), isNoteBuffer = false,
                     recoveryReason = "另一编辑会话的内容已保留，可查看后继续"))
@@ -85,10 +103,9 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
             requireGeneration(expectedGeneration)
             val previous = dao.entry(entry.id)
             if (previous != null && previous.kind != Kind.INTERACTION) throw DataProblem("不能更改档案类型")
-            val hasContent = entry["content"].isNotBlank() || dao.attachments().any { it.ownerId == entry.id }
-            val records = dao.entries().associateBy { it.id }
+            val hasContent = entry["content"].isNotBlank() || dao.hasAttachments(entry.id)
             DataValidation.validateFields(entry, draft = !hasContent && previous == null)
-            DataValidation.validateRelations(entry, records, draft = !hasContent && previous == null)
+            DataValidation.validateRelations(entry, relationEntries(entry), draft = !hasContent && previous == null)
             val now = System.currentTimeMillis()
             // Explicitly continuing a conflicting legacy editor preserves the currently published
             // side as another recoverable draft before replacing it, so neither side is discarded.
@@ -103,7 +120,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
             // A display title is derived, never cached, so clearing body clears its search matches.
             val saved = entry.copy(title = entry.title.trim(), createdAt = previous?.createdAt ?: entry.createdAt, updatedAt = now)
             dao.upsert(saved)
-            moveLinkedTasks(saved, records.values, now)
+            if (previous?.parentId != saved.parentId) moveLinkedTasks(saved, now)
             saved
         }
 
@@ -116,11 +133,11 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
      * replacing that editor must never remove the sole owner of an already imported file. */
     private suspend fun retireNoteSession(sessionId: String, entryId: String?) {
         val buffer = dao.draft(sessionId)
-        if (entryId != null && dao.entry(entryId) == null && dao.attachments().any { it.ownerId == entryId }) {
+        if (entryId != null && dao.entry(entryId) == null && dao.hasAttachments(entryId)) {
             if (buffer == null || buffer.entry.kind != Kind.INTERACTION) throw DataProblem("附件的记录内容尚未准备好，请重试保存后退出")
             val problem = runCatching {
                 DataValidation.validateFields(buffer.entry)
-                DataValidation.validateRelations(buffer.entry, dao.entries().associateBy { it.id })
+                DataValidation.validateRelations(buffer.entry, relationEntries(buffer.entry))
             }.exceptionOrNull()
             if (problem != null) {
                 // Keep the only valid attachment owner and its raw input available for correction.
@@ -135,8 +152,8 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
         dao.seal(SealedDraft(sessionId)); dao.deleteNoteSession(sessionId); dao.deleteDraft(sessionId)
     }
 
-    private suspend fun moveLinkedTasks(note: Entry, entries: Collection<Entry>, now: Long) {
-        entries.filter { it.kind == Kind.TASK && it.sourceId == note.id && it.parentId != note.parentId }.forEach {
+    private suspend fun moveLinkedTasks(note: Entry, now: Long) {
+        dao.linkedTasks(note.id).filter { it.parentId != note.parentId }.forEach {
             dao.upsert(it.copy(parentId = note.parentId, updatedAt = now))
         }
     }
@@ -154,7 +171,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
         var saved = entry.copy(title = entry.title.trim(), createdAt = previous?.createdAt ?: entry.createdAt, updatedAt = now)
         if (saved.kind == Kind.TASK) saved = saved.copy(fields = mapOf("status" to "未完成", "priority" to "普通") + saved.fields)
         if (saved.kind == Kind.ACTIVITY) saved = saved.copy(fields = mapOf("status" to "筹备中") + saved.fields)
-        if (saved.kind == Kind.INTERACTION && previous == null && saved["content"].isBlank() && dao.attachments().none { it.ownerId == saved.id }) throw DataProblem("写下内容或添加附件后就会保存")
+        if (saved.kind == Kind.INTERACTION && previous == null && saved["content"].isBlank() && !dao.hasAttachments(saved.id)) throw DataProblem("写下内容或添加附件后就会保存")
         DataValidation.validateFields(saved); DataValidation.validateRelations(saved, records)
         dao.upsert(saved); records[saved.id] = saved
         if (saved.kind == Kind.ACTIVITY && saved["status"] == "已取消" && cancelActivityTasks == true) {
@@ -167,7 +184,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
                 dao.upsert(it.copy(fields = it.fields + ("primary" to "false"), updatedAt = now))
             }
         }
-        if (saved.kind == Kind.INTERACTION) moveLinkedTasks(saved, records.values, now)
+        if (saved.kind == Kind.INTERACTION && previous?.parentId != saved.parentId) moveLinkedTasks(saved, now)
         if (draftId != null) { dao.seal(SealedDraft(draftId)); dao.deleteDraft(draftId); dao.deleteNoteSession(draftId) }
         saved
     }
@@ -184,7 +201,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
         val task = entry.copy(title = entry.title.trim(), updatedAt = now,
             fields = mapOf("status" to "未完成", "priority" to "普通") + entry.fields)
         DataValidation.validateFields(task)
-        DataValidation.validateRelations(task, dao.entries().associateBy { it.id })
+        DataValidation.validateRelations(task, relationEntries(task))
         dao.upsert(task); task
     }
 
@@ -209,7 +226,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
             updatedAt = System.currentTimeMillis(),
         )
         DataValidation.validateFields(updated)
-        DataValidation.validateRelations(updated, dao.entries().associateBy { it.id })
+        DataValidation.validateRelations(updated, relationEntries(updated))
         dao.upsert(updated); updated
     }
 
@@ -223,7 +240,7 @@ class Repository(context: Context, databaseName: String = "workbook.db", storage
         if (old != null && old.revision > draft.revision) return@mutate false
         if (draft.revision < 0) throw DataProblem("草稿版本无效")
         DataValidation.validateFields(draft.entry, draft = true)
-        DataValidation.validateRelations(draft.entry, dao.entries().associateBy { it.id }, draft = true)
+        DataValidation.validateRelations(draft.entry, relationEntries(draft.entry), draft = true)
         dao.upsert(draft.copy(updatedAt = System.currentTimeMillis())); true
     }
 

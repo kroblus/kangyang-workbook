@@ -16,17 +16,19 @@ import android.util.Log
 import cn.kangyang.workbook.data.Kind
 import cn.kangyang.workbook.data.Snapshot
 import cn.kangyang.workbook.domain.TimeRules
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** Non-exact local alarms. No service, polling timer, Internet, or exact-alarm permission. */
 class ReminderScheduler(context: Context) {
     private val app = context.applicationContext
-    private val alarms = app.getSystemService(AlarmManager::class.java)
-    private val notifications = app.getSystemService(NotificationManager::class.java)
-    private val preferences = app.getSharedPreferences("local_reminder_delivery", Context.MODE_PRIVATE)
+    private val alarms by lazy { app.getSystemService(AlarmManager::class.java) }
+    private val notifications by lazy { app.getSystemService(NotificationManager::class.java) }
+    private val preferences by lazy { app.getSharedPreferences("local_reminder_delivery", Context.MODE_PRIVATE) }
 
-    init {
+    private fun ensureChannel() {
         notifications.createNotificationChannel(
             NotificationChannel(CHANNEL, "工作跟进与活动", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "使用系统普通提醒，可能延后；锁屏不显示客户细节。"
@@ -44,7 +46,8 @@ class ReminderScheduler(context: Context) {
      * The first rebuild in a process reinstalls pending alarms, including after force-stop/reopen.
      * A delivery stamp survives process death and boot, so reinstalling cannot notify twice.
      */
-    suspend fun rebuild(snapshot: Snapshot, force: Boolean = false) = mutex.withLock {
+    suspend fun rebuild(snapshot: Snapshot, force: Boolean = false) = withContext(Dispatchers.IO) { mutex.withLock {
+        ensureChannel()
         val firstInProcess = initializedPackages.add(app.packageName)
         val forceInstall = force || firstInProcess
         val now = TimeRules.now()
@@ -54,12 +57,14 @@ class ReminderScheduler(context: Context) {
         val desired = active.mapValues { (_, entry) -> requireNotNull(TimeRules.reminderAt(entry)) }
         val scheduled = scheduledPlans()
         val editor = preferences.edit()
+        var plansChanged = false
 
         scheduled.forEach { (id, oldAt) ->
             if (desired[id] != oldAt) {
                 alarms.cancel(pendingAlarm(id, oldAt))
                 notifications.cancel(id, 0)
                 editor.remove(SCHEDULED + id)
+                plansChanged = true
                 Log.i(TAG, "CANCEL entry=$id planned=$oldAt")
             }
         }
@@ -79,21 +84,26 @@ class ReminderScheduler(context: Context) {
                 if (scheduled.containsKey(id)) {
                     alarms.cancel(pendingAlarm(id, plannedAt))
                     editor.remove(SCHEDULED + id)
+                    plansChanged = true
                 }
             } else if (forceInstall || scheduled[id] != plannedAt) {
                 // Never request an exact alarm. A recently missed reminder is recovered on reopen.
                 val effectiveAt = maxOf(plannedAt, now + 1_000)
                 alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, effectiveAt, pendingAlarm(id, plannedAt))
-                editor.putLong(SCHEDULED + id, plannedAt)
+                if (scheduled[id] != plannedAt) {
+                    editor.putLong(SCHEDULED + id, plannedAt)
+                    plansChanged = true
+                }
                 Log.i(TAG, "SCHEDULE entry=$id planned=$plannedAt effective=$effectiveAt nonExact=true")
             }
         }
-        check(editor.commit()) { "提醒计划未能保存，请重新打开应用重试" }
-    }
+        if (plansChanged) check(editor.commit()) { "提醒计划未能保存，请重新打开应用重试" }
+    } }
 
     /** Called only by the non-exported receiver after loading a fresh persistent snapshot. */
     @SuppressLint("MissingPermission") // Runtime permission and channel state are rechecked below.
-    internal suspend fun deliver(id: String, plannedAt: Long, snapshot: Snapshot) = mutex.withLock {
+    internal suspend fun deliver(id: String, plannedAt: Long, snapshot: Snapshot) = withContext(Dispatchers.IO) { mutex.withLock {
+        ensureChannel()
         val now = TimeRules.now()
         val entry = snapshot.entries.firstOrNull { it.id == id }
         val stillValid = entry != null && TimeRules.reminderAt(entry) == plannedAt &&
@@ -140,7 +150,7 @@ class ReminderScheduler(context: Context) {
             "提醒状态未能保存"
         }
         Log.i(TAG, "DELIVER entry=$id planned=$plannedAt actual=$now kind=${entry?.kind}")
-    }
+    } }
 
     fun scheduledPlans(): Map<String, Long> = preferences.all.mapNotNull { (key, value) ->
         if (key.startsWith(SCHEDULED) && value is Long) key.removePrefix(SCHEDULED) to value else null

@@ -31,6 +31,8 @@ data class EditorSession(
 fun isStaleTaskDraft(draft:Draft,current:Entry?):Boolean = draft.entry.kind==Kind.TASK &&
     current!=null && draft.entry.updatedAt!=current.updatedAt
 
+private data class TaskClockKey(val id:String,val date:String,val time:String,val status:String)
+
 class WorkbookViewModel(application:Application, private val savedState:SavedStateHandle) : AndroidViewModel(application) {
     val repository=Repository.get(application)
     val snapshot=repository.state.stateIn(viewModelScope,SharingStarted.Eagerly,Snapshot())
@@ -63,7 +65,13 @@ class WorkbookViewModel(application:Application, private val savedState:SavedSta
                 if(id!=null) (data.find(id) ?: data.drafts.firstOrNull{it.entry.id==id}?.entry)?.let { edit(it) }
             } catch(e:Exception) { message="旧编辑内容仍保留：${e.message}" }
         }
-        viewModelScope.launch { snapshot.collect { if(foreground) refreshClock() } }
+        viewModelScope.launch {
+            snapshot.map { data ->
+                data.entries.asSequence().filter { it.kind==Kind.TASK }
+                    .map { TaskClockKey(it.id,it["date"],it["time"],it["status"]) }.toSet()
+            }.distinctUntilChanged().flowOn(Dispatchers.Default)
+                .collect { if(foreground) refreshClock() }
+        }
     }
     private fun launchOperation(block:suspend ()->Unit):Job {
         val epoch=uiEpoch
@@ -137,6 +145,7 @@ class WorkbookViewModel(application:Application, private val savedState:SavedSta
     }
     private suspend fun persist(session:EditorSession):Boolean = writes.withLock {
         if(session.generation!=repository.generation || transitioning) return@withLock false
+        if(session.persistedRevision==session.revision) return@withLock true
         try {
             val saved=if(session.entry.kind==Kind.INTERACTION) {
                 repository.saveNoteRevision(session.entry,session.draftId,session.revision,session.generation)
@@ -266,7 +275,7 @@ class WorkbookViewModel(application:Application, private val savedState:SavedSta
             editor=null;savedState.remove<String>("editingId");pendingExport=null;history.clear()
             if(rollback) repository.rollbackLastRestore() else manager.restore(requireNotNull(prepared))
             repository.migrateLegacyDrafts()
-            ReminderScheduler(getApplication()).rebuild(repository.snapshot(),force=true)
+            ReminderScheduler(getApplication()).rebuild(repository.reminderSnapshot(),force=true)
             route="restore";message=if(rollback) "已回到恢复前的资料" else "完整恢复成功"
         } catch(e:CancellationException) { throw e
         } catch(e:Exception) {

@@ -5,6 +5,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import java.util.UUID
 
 /** Each kind is a separate business entity, with stable, explicit cross-entity references. */
@@ -67,7 +68,19 @@ data class Snapshot(
     val attachments: List<Attachment> = emptyList(),
     val sealedDraftIds: List<String> = emptyList(),
 ) {
-    fun find(id: String?): Entry? = entries.firstOrNull { it.id == id }
+    // A snapshot is replaced when Room publishes new data. These read-only indexes belong
+    // to that snapshot, not the persisted JSON, and are built only when a screen needs them.
+    @Transient private val byId = lazy { entries.associateBy { it.id } }
+    @Transient private val byKind = lazy { entries.groupBy { it.kind } }
+    @Transient private val byParent = lazy { entries.asSequence().filter { it.parentId != null }.groupBy { it.parentId!! } }
+    @Transient private val bySource = lazy { entries.asSequence().filter { it.sourceId != null }.groupBy { it.sourceId!! } }
+    @Transient private val filesByOwner = lazy { attachments.groupBy { it.ownerId } }
+
+    fun find(id: String?): Entry? = if (id == null) null else byId.value[id]
+    fun entriesOf(kind: Kind): List<Entry> = byKind.value[kind].orEmpty()
+    fun childrenOf(id: String): List<Entry> = byParent.value[id].orEmpty()
+    fun sourcedFrom(id: String): List<Entry> = bySource.value[id].orEmpty()
+    fun attachmentsFor(id: String): List<Attachment> = filesByOwner.value[id].orEmpty()
 }
 
 @Entity(tableName = "sealed_drafts")

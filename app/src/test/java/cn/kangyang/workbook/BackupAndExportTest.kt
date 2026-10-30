@@ -2,6 +2,7 @@ package cn.kangyang.workbook
 
 import cn.kangyang.workbook.data.*
 import cn.kangyang.workbook.storage.*
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -29,6 +30,33 @@ class BackupAndExportTest {
         assertThrows(DataProblem::class.java) { BackupCodec.decode(damaged, password) }
         val oversizedKdf = bytes.copyOf().also { it[8] = 0x7f; it[9] = 0xff.toByte(); it[10] = 0xff.toByte(); it[11] = 0xff.toByte() }
         assertThrows(DataProblem::class.java) { BackupCodec.decode(oversizedKdf, password) }
+    }
+
+    @Test fun lookupIndexesLeaveBackupJsonUnchangedAndCopiesUseTheirOwnData() {
+        val snapshot = fixture()
+        val manifest = BackupManifest(appVersion = "1.1.0", createdAt = 1, snapshot = snapshot)
+        val beforeLookup = dataJson.encodeToString(BackupManifest.serializer(), manifest)
+        val family = requireNotNull(snapshot.find("family"))
+        snapshot.entriesOf(Kind.CUSTOMER)
+        snapshot.childrenOf(family.id)
+        snapshot.sourcedFrom("interaction")
+        snapshot.attachmentsFor("interaction")
+        val afterLookup = dataJson.encodeToString(BackupManifest.serializer(), manifest)
+        assertEquals(beforeLookup, afterLookup)
+        assertEquals(setOf("entries", "drafts", "attachments", "sealedDraftIds"),
+            dataJson.parseToJsonElement(afterLookup).jsonObject.getValue("snapshot").jsonObject.keys)
+        val restored = dataJson.decodeFromString(BackupManifest.serializer(), afterLookup).snapshot
+        assertEquals(snapshot, restored)
+        assertEquals(family, restored.find(family.id))
+
+        val renamed = family.copy(title = "更新后的家庭称呼")
+        val added = Entry(id = "new-contact", kind = Kind.CONTACT, title = "新增联系人", parentId = family.id)
+        val copied = snapshot.copy(entries = snapshot.entries.map { if (it.id == family.id) renamed else it } + added)
+        assertEquals(renamed, copied.find(family.id))
+        assertEquals(added, copied.find(added.id))
+        assertTrue(copied.childrenOf(family.id).contains(added))
+        assertEquals(family, snapshot.find(family.id))
+        assertNull(snapshot.find(added.id))
     }
 
     @Test fun backupRejectsFutureSchemaAbnormalPathsOrMissingAttachment() {

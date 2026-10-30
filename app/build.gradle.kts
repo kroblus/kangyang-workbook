@@ -22,7 +22,21 @@ android {
         create("qa") { dimension = "space"; applicationIdSuffix = ".qa"; resValue("string", "app_name", "康养工作簿·验收") }
     }
     buildTypes {
-        release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("debug") }
+        release {
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("performance") {
+            initWith(getByName("release"))
+            isProfileable = true
+            applicationIdSuffix = ".perf"
+            versionNameSuffix = "-perf"
+            resValue("string", "app_name", "康养工作簿·轻量试用")
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

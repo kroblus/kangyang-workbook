@@ -49,6 +49,13 @@ fun EntryEditor(
     var taskDetailsExpanded by rememberSaveable(entry.id) { mutableStateOf(false) }
     var error by remember(entry.id) { mutableStateOf<String?>(null) }
     val scroll = rememberScrollState()
+    val relatedByKind = remember(entries) { entries.groupBy { it.kind } }
+    val organizations = relatedByKind[Kind.ORGANIZATION].orEmpty()
+    val customers = relatedByKind[Kind.CUSTOMER].orEmpty()
+    val activities = relatedByKind[Kind.ACTIVITY].orEmpty()
+    val dossiers = remember(organizations, customers) { organizations + customers }
+    val taskObjects = remember(dossiers, activities) { dossiers + activities }
+    val files = remember(attachments, entry.id) { attachments.filter { it.ownerId == entry.id } }
     fun update(key: String, value: String) {
         error = null
         onChange(entry.copy(fields = entry.fields + (key to value)))
@@ -129,20 +136,20 @@ fun EntryEditor(
                         EditorText("服务区域", get("area"), "area", onValue = { update("area", it) })
                         EditorDate("意向日期（选填）", get("intentDate"), "intentDate", onValue = { update("intentDate", it) })
                         EditorText("预算（按需填写）", get("budget"), "budget", onValue = { update("budget", it) })
-                        EntryRelation("主动关联的单位", get("linkedOrganization"), "linkedOrganization", entries.filter { it.kind == Kind.ORGANIZATION }, "不关联") { update("linkedOrganization", it) }
-                        EntryRelation("来源活动", get("linkedActivity"), "linkedActivity", entries.filter { it.kind == Kind.ACTIVITY }, "不关联") { update("linkedActivity", it) }
+                        EntryRelation("主动关联的单位", get("linkedOrganization"), "linkedOrganization", organizations, "不关联") { update("linkedOrganization", it) }
+                        EntryRelation("来源活动", get("linkedActivity"), "linkedActivity", activities, "不关联") { update("linkedActivity", it) }
                         EditorText("备注", get("notes"), "notes", multiline = true, onValue = { update("notes", it) })
                     }
                 }
                 Kind.CONTACT -> {
-                    EntryRelation("所属档案", entry.parentId.orEmpty(), "parentId", entries.filter { it.kind == Kind.ORGANIZATION || it.kind == Kind.CUSTOMER }, "请选择") { changeParent(it) }
+                    EntryRelation("所属档案", entry.parentId.orEmpty(), "parentId", dossiers, "请选择") { changeParent(it) }
                     EditorText("角色 / 职务", get("role"), "role", supporting = "例如：女儿、决策联系人、付款联系人；按实际了解填写", onValue = { update("role", it) })
                     EditorText("电话（选填）", get("phone"), "phone", keyboardType = KeyboardType.Phone, supporting = "支持手机、办公座机及分机，不会自动拨打", onValue = { update("phone", it) })
                     EditorText("微信备注", get("wechat"), "wechat", onValue = { update("wechat", it) })
                     EditorSwitch("设为主要联系人", get("primary") == "true", "primary") { update("primary", it.toString()) }
                 }
                 Kind.RECIPIENT -> {
-                    EntryRelation("所属客户 / 家庭", entry.parentId.orEmpty(), "parentId", entries.filter { it.kind == Kind.CUSTOMER }, "请选择") { changeParent(it) }
+                    EntryRelation("所属客户 / 家庭", entry.parentId.orEmpty(), "parentId", customers, "请选择") { changeParent(it) }
                     EditorText("与联系人关系", get("relationship"), "relationship", supporting = "例如：联系人李女士的母亲", onValue = { update("relationship", it) })
                     EditorText("年龄段（选填）", get("ageBand"), "ageBand", onValue = { update("ageBand", it) })
                     EditorText("照护情况（按需填写）", get("care"), "care", multiline = true, supporting = "仅记录使用者提供的信息，不作医疗诊断；不要填写身份证或详细病历", onValue = { update("care", it) })
@@ -169,7 +176,7 @@ fun EntryEditor(
                             }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("activity_pending")) { Text("改为时间待定") }
                         }
                         EditorText("地点", get("location"), "location", onValue = { update("location", it) })
-                        EntryRelation("关联单位", get("organizationId"), "organizationId", entries.filter { it.kind == Kind.ORGANIZATION }, "不关联") { update("organizationId", it) }
+                        EntryRelation("关联单位", get("organizationId"), "organizationId", organizations, "不关联") { update("organizationId", it) }
                         if (get("start").isNotBlank() && get("end").isNotBlank() && get("status") !in setOf("已完成", "已取消")) {
                             EditorChoice("活动提醒", get("remindMinutes"), "remindMinutes", listOf(
                                 "" to "关闭", "10" to "提前10分钟", "30" to "提前30分钟", "60" to "提前1小时", "1440" to "提前1天"
@@ -210,7 +217,7 @@ fun EntryEditor(
                         if (get("reminder") == "true") EditorHint("未设具体时刻时在当天 09:00 提醒，系统可能延后。")
                     }
                     if (entry.sourceId == null) {
-                        EntryRelation("关联对象（选填）", entry.parentId.orEmpty(), "parentId", entries.filter { it.kind in listOf(Kind.ORGANIZATION, Kind.CUSTOMER, Kind.ACTIVITY) }, "不关联") { changeParent(it) }
+                        EntryRelation("关联对象（选填）", entry.parentId.orEmpty(), "parentId", taskObjects, "不关联") { changeParent(it) }
                     } else {
                         OutlinedCard(Modifier.fillMaxWidth(), shape = AppShapes.card) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -244,7 +251,7 @@ fun EntryEditor(
                     SecondaryAction("照片", onAddPhoto, Modifier.weight(1f).testTag("add_photo"), !saving)
                     SecondaryAction("文件", onAddFile, Modifier.weight(1f).testTag("add_file"), !saving)
                 }
-                attachments.filter { it.ownerId == entry.id }.forEach { attachment ->
+                files.forEach { attachment ->
                     OutlinedCard(Modifier.fillMaxWidth(), shape = AppShapes.card) {
                         Column(Modifier.padding(12.dp)) {
                             Text(attachment.name, style = MaterialTheme.typography.bodyLarge)
@@ -333,9 +340,9 @@ private fun EditorChoice(label: String, value: String, key: String, choices: Lis
         }
         Icon(Icons.Outlined.ExpandMore, null, Modifier.size(24.dp))
     }
-    if (open) AppBottomSheet(label, { open = false }) {
+    if (open) AppBottomSheet(label, { open = false }) { close ->
         choices.forEach { (optionValue, optionLabel) ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("option_$optionLabel").clickable { onValue(optionValue); open = false }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("option_$optionLabel").clickable { onValue(optionValue); close() }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(value == optionValue, onClick = null)
                 Spacer(Modifier.width(8.dp))
                 Text(optionLabel, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
@@ -347,7 +354,7 @@ private fun EditorChoice(label: String, value: String, key: String, choices: Lis
 @Composable
 private fun EntryRelation(label: String, value: String, key: String, entries: List<Entry>, emptyText: String, onValue: (String) -> Unit) {
     var open by rememberSaveable { mutableStateOf(false) }
-    val current = entries.firstOrNull { it.id == value }
+    val current = remember(entries, value) { entries.firstOrNull { it.id == value } }
     SecondaryAction("$label：${current?.title ?: emptyText}", { open = true }, Modifier.fillMaxWidth().testTag("field_$key"))
     if (open) ObjectPickerPanel(entries, value.ifBlank { null }, { onValue(it.orEmpty()) }, { open = false }, title = label, allowClear = emptyText != "请选择")
 }
@@ -363,7 +370,7 @@ private fun EditorTags(value: String, available: List<String>, onValue: (String)
         }
         Icon(Icons.Outlined.ExpandMore, null)
     }
-    if (open) AppBottomSheet("业务需求标签", { open = false }) {
+    if (open) AppBottomSheet("业务需求标签", { open = false }) { close ->
         (available + selected).filter(String::isNotBlank).distinct().forEach { tag ->
             val checked = tag in selected
             Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("option_$tag").clickable {
@@ -374,7 +381,7 @@ private fun EditorTags(value: String, available: List<String>, onValue: (String)
                 Text(tag, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             }
         }
-        PrimaryAction("完成", { open = false }, Modifier.fillMaxWidth())
+        PrimaryAction("完成", close, Modifier.fillMaxWidth())
     }
 }
 

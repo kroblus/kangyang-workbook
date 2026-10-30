@@ -10,6 +10,8 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,6 +86,11 @@ class RepositoryV11Test {
             val current = r.snapshot().find(task.id)!!
             assertEquals("2026-11-05", current["date"]); assertEquals("false", current["reminder"])
             assertEquals("已完成", current["status"]); assertEquals("原完成备注必须保留", current["completionNote"])
+            val beforeInvalidRelation = r.snapshot().find(n.id)!!
+            assertTrue(runCatching {
+                r.saveNoteRevision(beforeInvalidRelation.copy(parentId = "missing-object"), "session", 3)
+            }.exceptionOrNull() is DataProblem)
+            assertEquals(beforeInvalidRelation, r.snapshot().find(n.id))
             val org = r.save(Entry(kind = Kind.ORGANIZATION, title = "示例·后补关联", fields = mapOf("type" to "养老机构")))
             r.saveNoteRevision(r.snapshot().find(n.id)!!.copy(parentId = org.id), "session", 3)
             val moved = r.snapshot().find(task.id)!!
@@ -91,6 +98,28 @@ class RepositoryV11Test {
             r.setTaskStatus(task.id, "已完成", "")
             assertEquals("", r.snapshot().find(task.id)!!["completionNote"])
         } finally { r.close() }
+    }
+
+    @Test fun reminderFlowIgnoresBodySavesAndKeepsTaskChanges(): Unit = runBlocking {
+        val r = repo()
+        val updates = Channel<Snapshot>(Channel.UNLIMITED)
+        val collector = launch { r.reminderState.collect { updates.send(it) } }
+        try {
+            assertTrue(withTimeout(5000) { updates.receive() }.entries.isEmpty())
+            val n = published(r, note("正文不需要重建提醒"), "reminder-flow-note")
+            assertNull(withTimeoutOrNull(500) { updates.receive() })
+            val task = r.createTaskIfAbsent(Entry(kind = Kind.TASK, title = "明天联系", sourceId = n.id,
+                fields = mapOf("date" to "2026-11-01", "reminder" to "true")))
+            assertEquals(listOf(task), withTimeout(5000) { updates.receive() }.entries)
+            r.saveNoteRevision(n.copy(fields = n.fields + ("content" to "继续补充正文")), "reminder-flow-note", 2)
+            assertNull(withTimeoutOrNull(500) { updates.receive() })
+            assertEquals(listOf(task), r.reminderSnapshot().entries)
+            val changed = r.patchTask(task.id, fields = mapOf("date" to "2026-11-05"))
+            assertEquals(listOf(changed), withTimeout(5000) { updates.receive() }.entries)
+            assertTrue(r.reminderSnapshot().drafts.isEmpty())
+        } finally {
+            collector.cancelAndJoin(); updates.close(); r.close()
+        }
     }
 
     @Test fun attachmentOnlyHasStableOwnerSurvivesBackupAndFailedImportLeavesNoVisibleNote(): Unit = runBlocking {

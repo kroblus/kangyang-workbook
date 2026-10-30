@@ -22,9 +22,14 @@ class DataConverters {
 interface WorkbookDao {
     @Query("SELECT * FROM entries ORDER BY occurredAt DESC, id") suspend fun entries(): List<Entry>
     @Query("SELECT * FROM entries WHERE id=:id") suspend fun entry(id: String): Entry?
+    @Query("SELECT * FROM entries WHERE id IN (:ids)") suspend fun entriesByIds(ids: List<String>): List<Entry>
+    @Query("SELECT * FROM entries WHERE kind='TASK' AND sourceId=:noteId") suspend fun linkedTasks(noteId: String): List<Entry>
+    @Query("SELECT * FROM entries WHERE kind IN ('TASK', 'ACTIVITY') ORDER BY id") suspend fun reminderEntries(): List<Entry>
+    @Query("SELECT * FROM entries WHERE kind IN ('TASK', 'ACTIVITY') ORDER BY id") fun observeReminderEntries(): Flow<List<Entry>>
     @Query("SELECT * FROM drafts ORDER BY updatedAt DESC") suspend fun drafts(): List<Draft>
     @Query("SELECT * FROM drafts WHERE id=:id") suspend fun draft(id: String): Draft?
     @Query("SELECT * FROM attachments ORDER BY id") suspend fun attachments(): List<Attachment>
+    @Query("SELECT EXISTS(SELECT 1 FROM attachments WHERE ownerId=:ownerId)") suspend fun hasAttachments(ownerId: String): Boolean
     @Query("SELECT * FROM sealed_drafts") suspend fun sealedDrafts(): List<SealedDraft>
     @Query("SELECT EXISTS(SELECT 1 FROM sealed_drafts WHERE id=:id)") suspend fun sealed(id: String): Boolean
     // Referencing every mutable table gives a single invalidation signal; each emission reads a transaction snapshot.

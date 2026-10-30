@@ -79,17 +79,29 @@ class V11AcceptanceTest {
         ui.waitForIdle(); device.waitForIdle()
         check(device.takeScreenshot(File(evidence, "$name.png")))
     }
+    private fun scrollToIfNeeded(node: SemanticsNodeInteraction, matcher: SemanticsMatcher) {
+        if (node.isDisplayed()) return
+        if (ui.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()) {
+            // The modal object's list takes precedence over its underlying page.
+            val container = listOf("object_list", "task_list", "list_scroll", "search_scroll", "draft_list", "detail_scroll")
+                .firstOrNull { tag(it).isDisplayed() }
+            if (container != null) {
+                tag(container).performScrollToNode(matcher)
+                return
+            }
+        }
+        node.performScrollTo()
+    }
     /** Inject a real device touch at the observed rendered target, not SemanticsActions.OnClick. */
     private fun touch(name: String, scroll: Boolean = false) {
         val node = tag(name)
         // A fixed footer (for example save_entry) is already reachable and has no
         // scroll parent. Scrolling is only allowed when a caller requested it and
         // the actual rendered target is offscreen. T01 never requests scrolling.
-        if (scroll && !node.isDisplayed()) {
-            if (ui.activity.model.route == "tasks" && ui.onAllNodesWithTag(name).fetchSemanticsNodes().isEmpty()) {
-                tag("task_list").performScrollToNode(hasTestTag(name))
-            } else node.performScrollTo()
-        }
+        if (scroll) scrollToIfNeeded(node, hasTestTag(name))
+        touchNode(node)
+    }
+    private fun touchNode(node: SemanticsNodeInteraction) {
         node.assertIsDisplayed().assertIsEnabled()
         device.waitForIdle()
         val semantics = node.fetchSemanticsNode()
@@ -105,8 +117,8 @@ class V11AcceptanceTest {
     }
     private fun text(value: String) {
         val node = ui.onNodeWithText(value, useUnmergedTree = false)
-        runCatching { node.performScrollTo() }
-        node.performTouchInput { click() }; ui.waitForIdle()
+        scrollToIfNeeded(node, hasText(value))
+        touchNode(node)
     }
     private fun closeKeyboard() { device.pressBack(); ui.waitForIdle() }
     private fun newNote(): String {
@@ -128,8 +140,7 @@ class V11AcceptanceTest {
     private fun readEntry(id: String) {
         home(); touch("search_all"); tag("global_search").performTextReplacement("")
         // The search UI is deliberately used; a larger fixture database may need scrolling.
-        tag("entry_$id").performScrollTo().performTouchInput { click() }
-        ui.waitForIdle()
+        touch("entry_$id", scroll = true)
     }
     private fun editEntry(id: String, query: String) {
         home(); touch("search_all"); tag("global_search").performTextReplacement(query); ui.waitForIdle()
